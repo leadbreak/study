@@ -11,3 +11,4 @@ study for python, ML, DL, Data Science, etc
 | 2023.10.25 | python dataclasses | blog [code](/python/dataclass_study.ipynb) |
 | 2023.11.03 | dl_framework keras3 | blog [code](/dl_framework/keras3.ipynb) |
 | 2023.11.09 | ReLU, Swish, GELU | blog [code](/note/activation.ipynb) |
+| 2023.11.21 | Transformer Basic | [blog](https://brunch.co.kr/@bfcced03a6054df/10) [code](/algorithm/01.transformer_introduce.ipynb)|
