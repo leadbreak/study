@@ -2,15 +2,14 @@ import pandas as pd
 import torch
 
 data = pd.read_excel('./대화체.xlsx')
-data.head()
 
-BATCH_SIZE = 128 # 논문에선 2.5만 token이 한 batch에 담기게 했다고 함.
-EPOCH = 15 
-max_len = 512 # model.model.encoder.embed_positions 를 보면 512로 했음을 알 수 있다.
+BATCH_SIZE = 128 ## 논문에선 2.5만 token이 한 batch에 담기게 했다고 함.
+EPOCH = 150 ## 논문에선 약 560 에포크(10만 스탭) 진행
+max_len = 512
 d_model = 512
 
-warmup_steps = 1500 # 데이터 수 * EPOCH / BS = 총 step 수 인것 고려 
-LR_scale = 0.5 # Noam scheduler에 peak LR 값 조절을 위해 곱해질 녀석 
+warmup_steps = 4000 ## 논문에선 4,000 스탭 
+LR_scale = 1 # Noam scheduler에 peak LR 값 조절을 위해 곱해질 녀석 
 
 class CustomDataset(torch.utils.data.Dataset):
     def __init__(self, data):
@@ -31,10 +30,6 @@ train_DL = torch.utils.data.DataLoader(train_DS, batch_size=BATCH_SIZE, shuffle=
 val_DL = torch.utils.data.DataLoader(val_DS, batch_size=BATCH_SIZE, shuffle=True)
 test_DL = torch.utils.data.DataLoader(test_DS, batch_size=BATCH_SIZE, shuffle=True)
 
-print(len(train_DS))
-print(len(val_DS))
-print(len(test_DS))
-
 import time
 import torch
 from torch import nn, optim
@@ -52,80 +47,68 @@ tokenizer = MarianTokenizer.from_pretrained('Helsinki-NLP/opus-mt-ko-en')
 
 eos_idx = tokenizer.eos_token_id
 pad_idx = tokenizer.pad_token_id
-print("eos_idx = ", eos_idx)
-print("pad_idx = ", pad_idx)
-
 vocab_size = tokenizer.vocab_size
-print(f'tokenizer의 사전 크기: {vocab_size}')
 
 def count_params(model):
     num = sum([p.numel() for p in model.parameters() if p.requires_grad])
     return num
 
 class NoamScheduler:
-    def __init__(self, optimizer, d_model, warmup_steps, LR_scale = 1):
-        self.optimizer = optimizer
-        self.current_step = 0
-        self.d_model = d_model
-        self.warmup_steps = warmup_steps
-        self.LR_scale = LR_scale
+    def __init__(self, optimizer, d_model, warmup_steps, LR_scale=1):
+        self.optimizer = optimizer  # 최적화할 옵티마이저
+        self.step_count = 0  # 현재까지 진행된 스텝 수
+        self.d_model = d_model  # 모델의 차원 수
+        self.warmup_steps = warmup_steps  # 웜업 단계에서의 스텝 수
+        self.LR_scale = LR_scale  # 학습률 스케일 인자
+        self._d_model_factor = self.LR_scale * (self.d_model ** -0.5)  # 모델 차원에 대한 계수를 미리 계산
 
     def step(self):
-        self.current_step += 1
-        lrate = self.LR_scale * (self.d_model ** -0.5) * min(self.current_step ** -0.5, self.current_step * self.warmup_steps ** -1.5)
-        self.optimizer.param_groups[0]['lr'] = lrate
+        self.step_count += 1  # 스텝 수 증가
+        lr = self.calculate_learning_rate()  # 새 학습률 계산
+        self.optimizer.param_groups[0]['lr'] = lr  # 옵티마이저의 학습률 갱신
+
+    def calculate_learning_rate(self):
+        # 초기 웜업 단계에서는 학습률을 서서히 증가시키고, 이후에는 감소시키는 방식으로 계산
+        minimum_factor = min(self.step_count ** -0.5, self.step_count * self.warmup_steps ** -1.5)
+        return self._d_model_factor * minimum_factor
         
-def plot_scheduler(scheduler_name, optimizer, scheduler, total_steps): # LR curve 보기
-    lr_history = []
-    steps = range(1, total_steps)
-
-    for _ in steps: # base model -> 10만 steps (12시간), big model -> 30만 steps (3.5일) 로 훈련했다고 함
-        lr_history += [optimizer.param_groups[0]['lr']]
-        scheduler.step()
-
-    plt.figure()
-    if total_steps == 100000:
-        plt.plot(steps, (512 ** -0.5) * torch.tensor(steps) ** -0.5, 'g--', linewidth=1, label=r"$d_{\mathrm{model}}^{-0.5} \cdot \mathrm{step}^{-0.5}$")
-        plt.plot(steps, (512 ** -0.5) * torch.tensor(steps) * 4000 ** -1.5, 'r--', linewidth=1, label=r"$d_{\mathrm{model}}^{-0.5} \cdot \mathrm{step} \cdot \mathrm{warmup\_steps}^{-1.5}$")    
-    plt.plot(steps, lr_history, 'b', linewidth=2, alpha=0.35, label="Learning Rate")
-
-    plt.ylim([-0.1*max(lr_history), 1.2*max(lr_history)])
-    plt.xlabel('Step')
-    plt.ylabel('Learning Rate')
-    plt.grid()
-    plt.legend()
-    plt.show()
-    
-optimizer = optim.Adam(nn.Linear(1, 1).parameters(), lr=0)
-scheduler = NoamScheduler(optimizer, d_model=d_model, warmup_steps=warmup_steps, LR_scale=LR_scale)
-
+        
 class LabelSmoothingCrossEntropyLoss(nn.Module):
-    def __init__(self, smoothing=0.1, ignore_index=-100):
+    def __init__(self, smoothing=0.1, ignore_index=65000):
         super(LabelSmoothingCrossEntropyLoss, self).__init__()
+        # 스무딩 파라미터 설정. 0에 가까울수록 일반 크로스 엔트로피에 가까움
         self.smoothing = smoothing
+        # 무시할 레이블(패딩)의 인덱스. 이 인덱스에 해당하는 레이블은 손실 계산에서 제외
         self.ignore_index = ignore_index
 
     def forward(self, input, target):
+        # 입력 텍스트에 대한 로그 소프트맥스를 적용하여 모델의 예측 로그 확률을 계산
         log_probs = F.log_softmax(input, dim=-1)
+        # 출력 언어의 어휘 크기를 계산 - 일반적인 분류 문제에서는 클래스의 수
         n_classes = input.size(-1)
 
         with torch.no_grad():
-            # Create a smoothed label distribution
+            # 스무딩된 레이블 분포를 생성. 각 클래스(어휘)에 작은 확률을 할당해 다양한 번역을 고려하도록 
             true_dist = torch.full_like(log_probs, self.smoothing / (n_classes - 1))
+            # 무시할 레이블을 처리합니다. -> 패딩 토큰
             ignore = target == self.ignore_index
+            # 무시할 레이블을 0으로 설정
             target = target.masked_fill(ignore, 0)
+            # 실제 레이블 위치에 (1 - 스무딩) 값을 할당
             true_dist.scatter_(1, target.unsqueeze(1), 1.0 - self.smoothing)
+            # 무시할 레이블의 위치에 0을 할당
             true_dist.masked_fill_(ignore.unsqueeze(1), 0)
 
-            # Mask to avoid calculating loss for ignored indices
+            # 무시할 인덱스에 대한 마스크를 생성
             mask = ~ignore
 
-        # Apply mask and compute loss
+        # 손실을 계산합니다. 마스크를 적용하여 무시할 인덱스를 제외
         loss = -true_dist * log_probs
+        # 최종 손실을 평균내어 반환
         loss = loss.masked_select(mask.unsqueeze(1)).mean()
 
         return loss
-
+    
 criterion = LabelSmoothingCrossEntropyLoss(smoothing=0.1, ignore_index=pad_idx)
 # criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 
@@ -207,10 +190,8 @@ class EncoderLayer(nn.Module):
         super().__init__()
 
         self.self_atten = MHA(d_model, n_heads)
-        self.self_atten_LN = nn.LayerNorm(d_model)
-
         self.FF = FeedForward(d_model, d_ff, drop_p)
-        self.FF_LN = nn.LayerNorm(d_model)
+        self.LN = nn.LayerNorm(d_model)
 
         self.dropout = nn.Dropout(drop_p)
     
@@ -220,17 +201,18 @@ class EncoderLayer(nn.Module):
         :param x: 입력 텐서
         :param enc_mask: 인코더 마스크
         """
-        x_norm = self.self_atten_LN(x) ## Pre-LN
+        x_norm = self.LN(x) ## Pre-LN
         
         # 멀티헤드 어텐션과 잔차 연결
-        residual, atten_enc = self.self_atten(x_norm, x_norm, x_norm, enc_mask)
-        x = x + self.dropout(residual)
+        output, atten_enc = self.self_atten(x_norm, x_norm, x_norm, enc_mask)
+        x = x + self.dropout(output)
 
         # 레이어 정규화 적용
-        x_norm = self.FF_LN(x)
+        x_norm = self.LN(x)
         # 피드 포워드 네트워크와 잔차 연결
-        residual = self.FF(x_norm)
-        x = x + self.dropout(residual)
+        output = self.FF(x_norm)
+        x = x_norm + self.dropout(output)
+        x = self.LN(x)
 
         return x, atten_enc
     
@@ -283,37 +265,6 @@ class Encoder(nn.Module):
 
 class DecoderLayer(nn.Module):
     def __init__(self, d_model, n_heads, d_ff, drop_p):
-        super().__init__()
-
-        self.self_atten = MHA(d_model, n_heads)
-        self.self_atten_LN = nn.LayerNorm(d_model)
-        
-        self.enc_dec_atten = MHA(d_model, n_heads)
-        self.enc_dec_atten_LN = nn.LayerNorm(d_model)
-
-        self.FF = FeedForward(d_model, d_ff, drop_p)
-        self.FF_LN = nn.LayerNorm(d_model)
-
-        self.dropout = nn.Dropout(drop_p)
-
-    def forward(self, x, enc_out, dec_mask, enc_dec_mask):
-
-        residual, atten_dec = self.self_atten(x, x, x, dec_mask)
-        residual = self.dropout(residual)
-        x = self.self_atten_LN(x + residual)
-
-        residual, atten_enc_dec = self.enc_dec_atten(x, enc_out, enc_out, enc_dec_mask) # Q는 디코더로부터 K,V는 인코더로부터!!
-        residual = self.dropout(residual)
-        x = self.enc_dec_atten_LN(x + residual)
-
-        residual = self.FF(x)
-        residual = self.dropout(residual)
-        x = self.FF_LN(x + residual)
-
-        return x, atten_dec, atten_enc_dec
-    
-class DecoderLayer(nn.Module):
-    def __init__(self, d_model, n_heads, d_ff, drop_p):
         """
         DecoderLayer 클래스의 초기화 메소드입니다.
         :param d_model: 모델의 차원 크기
@@ -321,48 +272,11 @@ class DecoderLayer(nn.Module):
         :param d_ff: 피드 포워드 네트워크의 내부 차원
         :param drop_p: 드롭아웃 비율
         """
-        super().__init__()
-
-        # Self-Attention 레이어
-        self.self_atten = MHA(d_model, n_heads)
-        self.self_atten_LN = nn.LayerNorm(d_model)
-        
-        # Encoder-Decoder Attention 레이어
-        self.enc_dec_atten = MHA(d_model, n_heads)
-        self.enc_dec_atten_LN = nn.LayerNorm(d_model)
-
-        # 피드 포워드 네트워크
-        self.FF = FeedForward(d_model, d_ff, drop_p)
-        self.FF_LN = nn.LayerNorm(d_model)
-
-        # 드롭아웃
-        self.dropout = nn.Dropout(drop_p)
-
-#     def forward(self, x, enc_out, dec_mask, enc_dec_mask):
-#         """
-#         DecoderLayer 클래스의 순전파 메소드입니다.
-#         :param x: 디코더의 입력
-#         :param enc_out: 인코더의 출력
-#         :param dec_mask: 디코더 마스크
-#         :param enc_dec_mask: 인코더-디코더 마스크
-#         """
-#         # 디코더 Self-Attention
-#         residual, atten_dec = self.self_atten(x, x, x, dec_mask)
-#         residual = self.dropout(residual)
-#         x = self.self_atten_LN(x + residual)
-
-#         # Encoder-Decoder Attention
-#         # Q from Decoder + K,V from Encoder
-#         residual, atten_enc_dec = self.enc_dec_atten(x, enc_out, enc_out, enc_dec_mask)
-#         residual = self.dropout(residual)
-#         x = self.enc_dec_atten_LN(x + residual)
-
-#         # 피드 포워드 네트워크
-#         residual = self.FF(x)
-#         residual = self.dropout(residual)
-#         x = self.FF_LN(x + residual)
-
-#         return x, atten_dec, atten_enc_dec
+        super().__init__()        
+        self.atten = MHA(d_model, n_heads) # Attention for Self & Cross
+        self.FF = FeedForward(d_model, d_ff, drop_p) # ff network
+        self.LN = nn.LayerNorm(d_model) # Layer Normalization
+        self.dropout = nn.Dropout(drop_p) # Dropout
 
     def forward(self, x, enc_out, dec_mask, enc_dec_mask):
         """
@@ -372,9 +286,9 @@ class DecoderLayer(nn.Module):
         :param dec_mask: 디코더 마스크
         :param enc_dec_mask: 인코더-디코더 마스크
         """
-        x, atten_dec = self.process_sublayer(x, self.self_atten, self.self_atten_LN, dec_mask)
-        x, atten_enc_dec = self.process_sublayer(x, self.enc_dec_atten, self.enc_dec_atten_LN, enc_dec_mask, enc_out)
-        x, _ = self.process_sublayer(x, self.FF, self.FF_LN)
+        x, atten_dec = self.process_sublayer(x, self.atten, self.LN, dec_mask)
+        x, atten_enc_dec = self.process_sublayer(x, self.atten, self.LN, enc_dec_mask, enc_out)
+        x, _ = self.process_sublayer(x, self.FF, self.LN)
 
         return x, atten_dec, atten_enc_dec
 
@@ -388,16 +302,12 @@ class DecoderLayer(nn.Module):
         :param enc_out: 인코더의 출력 (인코더-디코더 어텐션에만 필요)
         """
         x_norm = norm_layer(x)
-        if isinstance(sublayer, MHA):
-            # 멀티헤드 어텐션 레이어의 경우
-            if enc_out is not None:
-                # 인코더-디코더 어텐션
+        if isinstance(sublayer, MHA): # mha case
+            if enc_out is not None: # encoder-decoder attention
                 residual, atten = sublayer(x_norm, enc_out, enc_out, mask)
-            else:
-                # 자기 어텐션
+            else: # self attention
                 residual, atten = sublayer(x_norm, x_norm, x_norm, mask)
-        elif isinstance(sublayer, FeedForward):
-            # 피드 포워드 레이어의 경우
+        elif isinstance(sublayer, FeedForward): # ff network
             residual = sublayer(x_norm)
             atten = None  # 피드 포워드 레이어는 어텐션 맵을 반환하지 않음
         else:
@@ -422,7 +332,6 @@ class Decoder(nn.Module):
         self.scale = torch.sqrt(torch.tensor(d_model, dtype=torch.float32))
         self.input_embedding = input_embedding
         self.pos_embedding = nn.Embedding(max_len, d_model)
-
         self.dropout = nn.Dropout(drop_p)
 
         self.layers = nn.ModuleList([DecoderLayer(d_model, n_heads, d_ff, drop_p) for _ in range(n_layers)])
@@ -528,58 +437,20 @@ class Transformer(nn.Module):
 
         return out, atten_encs, atten_decs, atten_enc_decs
 
-save_model_path = './traslator_01.pt'
-save_history_path = './translator_history_01.pt'
+save_model_path = './translator_ls.pt'
+save_history_path = './translator_history_ls.pt'
 
-# Load the tokenizer & input embedding layer & last fc layer
-tokenizer = MarianTokenizer.from_pretrained('Helsinki-NLP/opus-mt-ko-en')
-model = MarianMTModel.from_pretrained('Helsinki-NLP/opus-mt-ko-en')
+DEVICE = 'cuda:2' ## 8대의 GPU 없음
 
-eos_idx = tokenizer.eos_token_id
-pad_idx = tokenizer.pad_token_id
-print("eos_idx = ", eos_idx)
-print("pad_idx = ", pad_idx)
-
-DEVICE = 'cuda:2'
-
-BATCH_SIZE = 128 # 논문에선 2.5만 token이 한 batch에 담기게 했다고 함.
-EPOCH = 150 
-max_len = 512 # model.model.encoder.embed_positions 를 보면 512로 했음을 알 수 있다.
-
-scheduler_name = 'Noam'
-# scheduler_name = 'Cos'
-#### Noam ####
-# toatl_steps = 95000 // BATCH_SIZE
-warmup_steps = 4000 # 이건 논문에서 제시한 값 (총 10만 step의 4%)
-# warmup_steps = 1500 # 데이터 수 * EPOCH / BS = 총 step 수 인것 고려 # 저장된 모델
-# warmup_steps = 1300 
-LR_scale = 0.5 # Noam scheduler에 peak LR 값 조절을 위해 곱해질 녀석 # 저장된 모델
-# LR_scale = 0.4
-#### Cos ####
-LR_init = 5e-4
-T0 = 1500 # 첫 주기
-T_mult = 2 # 배 만큼 주기가 길어짐 (1보다 큰 정수여야 함)
-#############
-
-vocab_size = tokenizer.vocab_size
-print(vocab_size)
-
-# 논문에 나오는 base 모델 (많은 train loss를 많이 줄이려면 많은 Epoch이 요구됨, 또, test 성능도 좋으려면 더 많은 데이터 요구)
+# 논문에 나오는 base 모델
 d_model = 512
 n_heads = 8
 n_layers = 6
 d_ff = 2048
 drop_p = 0.1
 
-# 좀 사이즈 줄인 모델 (훈련된 input_embedding, fc_out 사용하면 사용 불가)
-# d_model = 256
-# n_heads = 8
-# n_layers = 3
-# d_ff = 512
-# drop_p = 0.1
-
 def Train(model, train_DL, val_DL, criterion, optimizer):
-    loss_history = {"train": [], "val": []}
+    history = {"train": [], "val": [], "lr":[]}
     best_loss = float('inf')
 
     for ep in range(EPOCH):
@@ -588,40 +459,60 @@ def Train(model, train_DL, val_DL, criterion, optimizer):
         # 학습 모드
         model.train()
         train_loss = loss_epoch(model, train_DL, criterion, optimizer=optimizer, max_len=max_len, DEVICE=DEVICE, tokenizer=tokenizer)
-        loss_history["train"].append(train_loss)
+        history["train"].append(train_loss)
 
+        # 현재 학습률 기록
+        current_lr = optimizer.param_groups[0]['lr']
+        history["lr"].append(current_lr)
+        
         # 평가 모드
         model.eval()
         with torch.no_grad():
             val_loss = loss_epoch(model, val_DL, criterion, max_len=max_len, DEVICE=DEVICE, tokenizer=tokenizer)
-            loss_history["val"].append(val_loss)
+            history["val"].append(val_loss)
+            epoch_time = time.time() - start_time
+
+            # 로그 출력
             if val_loss < best_loss:
                 best_loss = val_loss
-                torch.save({"model": model, "ep": ep, "optimizer": optimizer.state_dict()}, save_model_path)
+                torch.save({"model": model, "ep": ep, "optimizer": optimizer.state_dict(), 'loss':val_loss}, save_model_path)
+                print(f"| Epoch {ep+1}/{EPOCH} | train loss:{train_loss:.5f} val loss:{val_loss:.5f} current_LR:{optimizer.param_groups[0]['lr']:.8f} time:{epoch_time:.2f}s => Model Saved!")
+            else :
+                print(f"| Epoch {ep+1}/{EPOCH} | train loss:{train_loss:.5f} val loss:{val_loss:.5f} current_LR:{optimizer.param_groups[0]['lr']:.8f} time:{epoch_time:.2f}s")
 
-        # 에포크 소요 시간 계산
-        end_time = time.time()
-        epoch_time = end_time - start_time
-
-        # 로그 출력
-        print(f"Epoch{ep+1}/{EPOCH}|train loss:{train_loss:.5f} val loss:{val_loss:.5f} current_LR:{optimizer.param_groups[0]['lr']:.8f} time:{epoch_time:.2f}s")
-        # print("-" * 20)
-
-    # 모든 학습이 끝난 후 시각화
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=list(range(1, EPOCH + 1)), y=loss_history["train"], mode='lines+markers', name='Train Loss'))
-    fig.add_trace(go.Scatter(x=list(range(1, EPOCH + 1)), y=loss_history["val"], mode='lines+markers', name='Validation Loss'))
-    fig.update_layout(title='Loss History', xaxis_title='Epoch', yaxis_title='Loss', showlegend=True)
-    fig.show()
-
-    torch.save({"loss_history": loss_history, "EPOCH": EPOCH, "BATCH_SIZE": BATCH_SIZE}, save_history_path)
-
+    torch.save({"loss_history": history, "EPOCH": EPOCH, "BATCH_SIZE": BATCH_SIZE}, save_history_path)
     
-def Test(model, test_DL, criterion, max_len, DEVICE, tokenizer):
-    model.eval() # test mode로 전환
-    with torch.no_grad():
-        test_loss = loss_epoch(model, test_DL, criterion, max_len=max_len, DEVICE=DEVICE, tokenizer=tokenizer)
-    print(f"Test loss: {round(test_loss, 3)} | Test PPL: {round(math.exp(test_loss), 3)}")
+    show_history(history=history)
+    
+def show_history(history, save_path='train_history_ls'):
+    # train loss, val loss 시각화
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=list(range(1, EPOCH + 1)), y=history["train"], mode='lines+markers', name='Train Loss'))
+    fig.add_trace(go.Scatter(x=list(range(1, EPOCH + 1)), y=history["val"], mode='lines+markers', name='Validation Loss'))
+
+    fig.update_layout(
+        title='Training History',
+        xaxis_title='Epoch',
+        yaxis=dict(title='Loss'),
+        showlegend=True
+    )
+    fig.write_image(save_path+".png")
+    # fig.show()
+    
+    # learning rate 시각화
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=list(range(1, EPOCH + 1)), y=history['lr'], mode='lines+markers', name='Learning Rate'))
+
+    # 레이아웃 업데이트
+    fig.update_layout(
+        title='Training History',
+        xaxis_title='Epoch',
+        yaxis=dict(title='Learning Rate'),
+        showlegend=True
+    )
+    fig.write_image(save_path+"_lr.png")
+    # fig.show()
+    
 
 def loss_epoch(model, DL, criterion, optimizer=None, max_len=None, DEVICE=None, tokenizer=None):
     N = len(DL.dataset) # 데이터 수
@@ -631,19 +522,17 @@ def loss_epoch(model, DL, criterion, optimizer=None, max_len=None, DEVICE=None, 
         src = tokenizer(src_texts, padding=True, truncation=True, max_length=max_len, return_tensors='pt').input_ids.to(DEVICE)
         trg_texts = ['</s> ' + s for s in trg_texts]
         trg = tokenizer(trg_texts, padding=True, truncation=True, max_length=max_len, return_tensors='pt').input_ids.to(DEVICE)
-        # 추론
+        
+        # inference
         y_hat = model(src, trg[:, :-1])[0] # 모델 통과 시킬 때 trg의 <eos>는 제외!
-        # y_hat.shape = 개단채 즉, 훈련 땐 문장이 한번에 튀어나옴
-        # 손실
         loss = criterion(y_hat.permute(0, 2, 1), trg[:, 1:]) # 손실 계산 시 <sos> 는 제외!
-        # 개단채 -> 개채단으로 바꿔줌 (1D segmentation으로 생각)
-        # 업데이트
         if optimizer is not None:
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step()
-        # 손실 누적
+        
+        # loss accumulation
         loss_b = loss.item() * src.shape[0]
         rloss += loss_b
     loss_e = rloss / N
@@ -651,7 +540,6 @@ def loss_epoch(model, DL, criterion, optimizer=None, max_len=None, DEVICE=None, 
 
 model = Transformer(vocab_size, max_len, d_model, n_heads, n_layers, d_ff, drop_p).to(DEVICE)
 
-# params = [p for p in model.parameters() if p.requires_grad] # 사전 학습된 layer를 사용할 경우
 params = model.parameters()
 
 # 논문에서 제시한 beta와 eps 사용 & 맨 처음 step 의 LR=0으로 출발 (warm-up)
