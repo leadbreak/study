@@ -1,15 +1,15 @@
 import pandas as pd
+import time
 import torch
+from torch import nn, optim
+import torch.nn.functional as F
+from transformers import MarianTokenizer
+import pandas as pd
+from tqdm import tqdm
+import plotly.graph_objs as go
 
-data = pd.read_excel('./대화체.xlsx')
+import click
 
-BATCH_SIZE = 128 ## 논문에선 2.5만 token이 한 batch에 담기게 했다고 함.
-EPOCH = 150 ## 논문에선 약 560 에포크(10만 스탭) 진행
-max_len = 512
-d_model = 512
-
-warmup_steps = 4000 ## 논문에선 4,000 스탭 
-LR_scale = 1 # Noam scheduler에 peak LR 값 조절을 위해 곱해질 녀석 
 
 class CustomDataset(torch.utils.data.Dataset):
     def __init__(self, data):
@@ -20,34 +20,6 @@ class CustomDataset(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         return self.data.loc[idx, '원문'], self.data.loc[idx, '번역문']
-
-data = pd.read_excel('대화체.xlsx')
-custom_DS = CustomDataset(data)
-
-train_DS, val_DS, test_DS, _ = torch.utils.data.random_split(custom_DS, [95000, 2000, 1000, len(custom_DS)-95000-2000-1000])
-
-train_DL = torch.utils.data.DataLoader(train_DS, batch_size=BATCH_SIZE, shuffle=True)
-val_DL = torch.utils.data.DataLoader(val_DS, batch_size=BATCH_SIZE, shuffle=True)
-test_DL = torch.utils.data.DataLoader(test_DS, batch_size=BATCH_SIZE, shuffle=True)
-
-import time
-import torch
-from torch import nn, optim
-import torch.nn.functional as F
-from transformers import MarianMTModel, MarianTokenizer
-import pandas as pd
-from tqdm import tqdm
-import math
-import matplotlib.pyplot as plt
-
-import plotly.graph_objs as go
-
-# Load tokenizer
-tokenizer = MarianTokenizer.from_pretrained('Helsinki-NLP/opus-mt-ko-en')
-
-eos_idx = tokenizer.eos_token_id
-pad_idx = tokenizer.pad_token_id
-vocab_size = tokenizer.vocab_size
 
 def count_params(model):
     num = sum([p.numel() for p in model.parameters() if p.requires_grad])
@@ -76,41 +48,33 @@ class NoamScheduler:
 class LabelSmoothingCrossEntropyLoss(nn.Module):
     def __init__(self, smoothing=0.1, ignore_index=65000):
         super(LabelSmoothingCrossEntropyLoss, self).__init__()
-        # 스무딩 파라미터 설정. 0에 가까울수록 일반 크로스 엔트로피에 가까움
         self.smoothing = smoothing
-        # 무시할 레이블(패딩)의 인덱스. 이 인덱스에 해당하는 레이블은 손실 계산에서 제외
         self.ignore_index = ignore_index
 
     def forward(self, input, target):
-        # 입력 텍스트에 대한 로그 소프트맥스를 적용하여 모델의 예측 로그 확률을 계산
         log_probs = F.log_softmax(input, dim=-1)
-        # 출력 언어의 어휘 크기를 계산 - 일반적인 분류 문제에서는 클래스의 수
         n_classes = input.size(-1)
 
         with torch.no_grad():
-            # 스무딩된 레이블 분포를 생성. 각 클래스(어휘)에 작은 확률을 할당해 다양한 번역을 고려하도록 
-            true_dist = torch.full_like(log_probs, self.smoothing / (n_classes - 1))
-            # 무시할 레이블을 처리합니다. -> 패딩 토큰
+            true_dist = torch.zeros_like(log_probs)
             ignore = target == self.ignore_index
-            # 무시할 레이블을 0으로 설정
-            target = target.masked_fill(ignore, 0)
-            # 실제 레이블 위치에 (1 - 스무딩) 값을 할당
-            true_dist.scatter_(1, target.unsqueeze(1), 1.0 - self.smoothing)
-            # 무시할 레이블의 위치에 0을 할당
-            true_dist.masked_fill_(ignore.unsqueeze(1), 0)
+            non_ignore = ~ignore
+            true_dist.fill_(self.smoothing / (n_classes - 1))
+            true_dist[non_ignore] = 0
+
+            # 타겟 클래스에 (1 - 스무딩)을 적용하고, 무시할 인덱스는 그대로 0을 유지
+            true_dist.scatter_add_(1, target.unsqueeze(1), (1.0 - self.smoothing))
 
             # 무시할 인덱스에 대한 마스크를 생성
-            mask = ~ignore
+            mask = non_ignore
 
-        # 손실을 계산합니다. 마스크를 적용하여 무시할 인덱스를 제외
         loss = -true_dist * log_probs
-        # 최종 손실을 평균내어 반환
         loss = loss.masked_select(mask.unsqueeze(1)).mean()
 
         return loss
+
+
     
-criterion = LabelSmoothingCrossEntropyLoss(smoothing=0.1, ignore_index=pad_idx)
-# criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 
 class MHA(nn.Module):
     def __init__(self, d_model, n_heads):
@@ -212,7 +176,7 @@ class EncoderLayer(nn.Module):
         # 피드 포워드 네트워크와 잔차 연결
         output = self.FF(x_norm)
         x = x_norm + self.dropout(output)
-        x = self.LN(x)
+        # x = self.LN(x)
 
         return x, atten_enc
     
@@ -236,6 +200,7 @@ class Encoder(nn.Module):
         self.pos_embedding = nn.Embedding(max_len, d_model)
 
         self.dropout = nn.Dropout(drop_p)
+        self.LN = nn.LayerNorm(d_model) ## encoder 레이어 후에 LN 적용
 
         # 인코더 레이어를 n_layers만큼 생성
         self.layers = nn.ModuleList([EncoderLayer(d_model, n_heads, d_ff, drop_p) for _ in range(n_layers)])        
@@ -261,6 +226,7 @@ class Encoder(nn.Module):
         if atten_map_save:
             atten_encs = torch.cat(atten_encs, dim=0)
 
+        x = self.LN(x)
         return x, atten_encs
 
 class DecoderLayer(nn.Module):
@@ -316,7 +282,7 @@ class DecoderLayer(nn.Module):
         return x + self.dropout(residual), atten
     
 class Decoder(nn.Module):
-    def __init__(self, input_embedding, max_len, d_model, n_heads, n_layers, d_ff, drop_p):
+    def __init__(self, input_embedding, max_len, d_model, n_heads, n_layers, d_ff, drop_p, vocab_size):
         """
         Decoder 클래스의 초기화 메소드.
         :param input_embedding: 입력 임베딩 레이어
@@ -326,16 +292,16 @@ class Decoder(nn.Module):
         :param n_layers: 디코더 레이어의 수
         :param d_ff: 피드 포워드 네트워크의 내부 차원
         :param drop_p: 드롭아웃 비율
+        :param vocab_size: 사전의 크기
         """
-        super().__init__()
-
+        super().__init__()        
         self.scale = torch.sqrt(torch.tensor(d_model, dtype=torch.float32))
         self.input_embedding = input_embedding
         self.pos_embedding = nn.Embedding(max_len, d_model)
         self.dropout = nn.Dropout(drop_p)
 
         self.layers = nn.ModuleList([DecoderLayer(d_model, n_heads, d_ff, drop_p) for _ in range(n_layers)])
-
+        self.LN = nn.LayerNorm(d_model)
         self.fc_out = nn.Linear(d_model, vocab_size)
 
     def forward(self, trg, enc_out, dec_mask, enc_dec_mask, atten_map_save=False):
@@ -364,12 +330,13 @@ class Decoder(nn.Module):
             atten_decs = torch.cat(atten_decs, dim=0)
             atten_enc_decs = torch.cat(atten_enc_decs, dim=0)
 
+        x = self.LN(x) ## decoder layers 이후 LN
         x = self.fc_out(x)
         
         return x, atten_decs, atten_enc_decs
 
 class Transformer(nn.Module):
-    def __init__(self, vocab_size, max_len, d_model, n_heads, n_layers, d_ff, drop_p):
+    def __init__(self, vocab_size, max_len, d_model, n_heads, n_layers, d_ff, drop_p, pad_idx):
         """
         Transformer 클래스의 초기화 메소드.
         :param vocab_size: 어휘 사전의 크기
@@ -379,12 +346,13 @@ class Transformer(nn.Module):
         :param n_layers: 인코더 및 디코더 레이어의 수
         :param d_ff: 피드 포워드 네트워크의 내부 차원
         :param drop_p: 드롭아웃 비율
+        :param pad_idx: padding token의 index
         """
         super().__init__()
-
+        self.pad_idx = pad_idx
         input_embedding = nn.Embedding(vocab_size, d_model) 
         self.encoder = Encoder(input_embedding, max_len, d_model, n_heads, n_layers, d_ff, drop_p)
-        self.decoder = Decoder(input_embedding, max_len, d_model, n_heads, n_layers, d_ff, drop_p)
+        self.decoder = Decoder(input_embedding, max_len, d_model, n_heads, n_layers, d_ff, drop_p, vocab_size)
 
         self.n_heads = n_heads
 
@@ -400,7 +368,7 @@ class Transformer(nn.Module):
         :return: 인코더 마스크 (batch_size, 1, 1, src_len)
                  - pad_idx에 해당하는 위치는 True, 그 외는 False
         """
-        enc_mask = (src == pad_idx).unsqueeze(1).unsqueeze(2)
+        enc_mask = (src == self.pad_idx).unsqueeze(1).unsqueeze(2)
         return enc_mask.repeat(1, self.n_heads, src.shape[1], 1).to(src.device)
 
     def make_dec_mask(self, trg):
@@ -410,7 +378,7 @@ class Transformer(nn.Module):
         :return: 디코더 마스크 (batch_size, 1, trg_len, trg_len)
                  - 패딩 위치 및 미래 위치는 True, 그 외는 False
         """
-        trg_pad_mask = (trg == pad_idx).unsqueeze(1).unsqueeze(2)
+        trg_pad_mask = (trg == self.pad_idx).unsqueeze(1).unsqueeze(2)
         trg_pad_mask = trg_pad_mask.repeat(1, self.n_heads, trg.shape[1], 1).to(trg.device)
         trg_dec_mask = torch.tril(torch.ones(trg.shape[0], self.n_heads, trg.shape[1], trg.shape[1], device=trg.device))==0
         dec_mask = trg_pad_mask | trg_dec_mask
@@ -424,7 +392,7 @@ class Transformer(nn.Module):
         :return: 인코더-디코더 마스크 (batch_size, 1, trg_len, src_len)
                  - 소스의 pad_idx 위치는 True, 그 외는 False
         """
-        enc_dec_mask = (src == pad_idx).unsqueeze(1).unsqueeze(2)
+        enc_dec_mask = (src == self.pad_idx).unsqueeze(1).unsqueeze(2)
         return enc_dec_mask.repeat(1, self.n_heads, trg.shape[1], 1).to(src.device)
 
     def forward(self, src, trg):
@@ -437,19 +405,22 @@ class Transformer(nn.Module):
 
         return out, atten_encs, atten_decs, atten_enc_decs
 
-save_model_path = './translator_ls.pt'
-save_history_path = './translator_history_ls.pt'
-
-DEVICE = 'cuda:2' ## 8대의 GPU 없음
-
-# 논문에 나오는 base 모델
-d_model = 512
-n_heads = 8
-n_layers = 6
-d_ff = 2048
-drop_p = 0.1
-
-def Train(model, train_DL, val_DL, criterion, optimizer):
+def Train(model, 
+          train_DL, 
+          val_DL, 
+          criterion, 
+          optimizer,
+          params):
+    
+    BATCH_SIZE = params['batch_size']
+    EPOCH = params['epoch']
+    max_len = params['max_len']
+    DEVICE = params['device']
+    tokenizer = params['tokenizer']
+    save_model_path = params['save_model_path']
+    save_history_path = params['save_history_path']
+    scheduler = params['scheduler']
+    
     history = {"train": [], "val": [], "lr":[]}
     best_loss = float('inf')
 
@@ -458,7 +429,7 @@ def Train(model, train_DL, val_DL, criterion, optimizer):
 
         # 학습 모드
         model.train()
-        train_loss = loss_epoch(model, train_DL, criterion, optimizer=optimizer, max_len=max_len, DEVICE=DEVICE, tokenizer=tokenizer)
+        train_loss = loss_epoch(model, train_DL, criterion, optimizer=optimizer, max_len=max_len, DEVICE=DEVICE, tokenizer=tokenizer, scheduler=scheduler)
         history["train"].append(train_loss)
 
         # 현재 학습률 기록
@@ -475,16 +446,18 @@ def Train(model, train_DL, val_DL, criterion, optimizer):
             # 로그 출력
             if val_loss < best_loss:
                 best_loss = val_loss
-                torch.save({"model": model, "ep": ep, "optimizer": optimizer.state_dict(), 'loss':val_loss}, save_model_path)
+                # loss_path = save_model_path + f'_loss{val_loss:.4f}.pt'
+                loss_path = save_model_path + '.pt'
+                torch.save({"model": model, "ep": ep, "optimizer": optimizer.state_dict(), 'loss':val_loss}, loss_path)
                 print(f"| Epoch {ep+1}/{EPOCH} | train loss:{train_loss:.5f} val loss:{val_loss:.5f} current_LR:{optimizer.param_groups[0]['lr']:.8f} time:{epoch_time:.2f}s => Model Saved!")
             else :
                 print(f"| Epoch {ep+1}/{EPOCH} | train loss:{train_loss:.5f} val loss:{val_loss:.5f} current_LR:{optimizer.param_groups[0]['lr']:.8f} time:{epoch_time:.2f}s")
 
     torch.save({"loss_history": history, "EPOCH": EPOCH, "BATCH_SIZE": BATCH_SIZE}, save_history_path)
     
-    show_history(history=history)
+    show_history(history=history, EPOCH=EPOCH, save_path=save_model_path)
     
-def show_history(history, save_path='train_history_ls'):
+def show_history(history, EPOCH, save_path='train_history_ls'):
     # train loss, val loss 시각화
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=list(range(1, EPOCH + 1)), y=history["train"], mode='lines+markers', name='Train Loss'))
@@ -496,7 +469,7 @@ def show_history(history, save_path='train_history_ls'):
         yaxis=dict(title='Loss'),
         showlegend=True
     )
-    fig.write_image(save_path+".png")
+    fig.write_image(save_path+"loss.png")
     # fig.show()
     
     # learning rate 시각화
@@ -510,11 +483,11 @@ def show_history(history, save_path='train_history_ls'):
         yaxis=dict(title='Learning Rate'),
         showlegend=True
     )
-    fig.write_image(save_path+"_lr.png")
+    fig.write_image(save_path+"lr.png")
     # fig.show()
     
 
-def loss_epoch(model, DL, criterion, optimizer=None, max_len=None, DEVICE=None, tokenizer=None):
+def loss_epoch(model, DL, criterion, optimizer=None, max_len=None, DEVICE=None, tokenizer=None, scheduler=None):
     N = len(DL.dataset) # 데이터 수
 
     rloss = 0
@@ -522,7 +495,7 @@ def loss_epoch(model, DL, criterion, optimizer=None, max_len=None, DEVICE=None, 
         src = tokenizer(src_texts, padding=True, truncation=True, max_length=max_len, return_tensors='pt').input_ids.to(DEVICE)
         trg_texts = ['</s> ' + s for s in trg_texts]
         trg = tokenizer(trg_texts, padding=True, truncation=True, max_length=max_len, return_tensors='pt').input_ids.to(DEVICE)
-        
+
         # inference
         y_hat = model(src, trg[:, :-1])[0] # 모델 통과 시킬 때 trg의 <eos>는 제외!
         loss = criterion(y_hat.permute(0, 2, 1), trg[:, 1:]) # 손실 계산 시 <sos> 는 제외!
@@ -531,23 +504,110 @@ def loss_epoch(model, DL, criterion, optimizer=None, max_len=None, DEVICE=None, 
             loss.backward()
             optimizer.step()
             scheduler.step()
-        
+                    
         # loss accumulation
         loss_b = loss.item() * src.shape[0]
         rloss += loss_b
+
     loss_e = rloss / N
     return loss_e
 
-model = Transformer(vocab_size, max_len, d_model, n_heads, n_layers, d_ff, drop_p).to(DEVICE)
+@click.command()
+@click.option('--batch', default=128, help='batch size')
+@click.option('--epoch', default=100, help='train epoch')
+@click.option('--device', default='cuda:0', help='cuda:index')
+@click.option('--model_size', default='small', help='select among [base] or [small]')
+@click.option('--criterion_type', default='ce', help='select among [ce] or [lsce]')
+@click.option('--label_smoothing', default=0.1, help='ratio of label smoothing')
+def main(batch:int=128, 
+               epoch:int=100, 
+               device:str='cuda:0', 
+               model_size:str='small',
+               criterion_type:str='ce',
+               label_smoothing:float=0.1,
+               ):
+    
+    text = "Train Transformer Translator Kor-En is Started!"
+    styled_text = click.style(text, fg='green', bold=True)
+    click.echo(styled_text)    
+    
+    params = dict()
+    params['batch_size'] = BATCH_SIZE = batch ## 논문에선 2.5만 token이 한 batch에 담기게 했다고 함.
+    params['epoch'] = epoch ## 논문에선 약 560 에포크(10만 스탭) 진행
 
-params = model.parameters()
+    params['save_model_path'] = f'./results/translator_{criterion_type}' if criterion_type=='ce' else f'./results/translator_{criterion_type}{label_smoothing}'
+    params['save_history_path'] = f'./results/translator_history_{criterion_type}.pt' if criterion_type=='ce' else f'./results/translator_history_{criterion_type}{label_smoothing}'
 
-# 논문에서 제시한 beta와 eps 사용 & 맨 처음 step 의 LR=0으로 출발 (warm-up)
-optimizer = optim.Adam(params, 
-                       lr=0, 
-                       betas=(0.9, 0.98), 
-                       eps=1e-9) 
-scheduler = NoamScheduler(optimizer, d_model=d_model, warmup_steps=warmup_steps, LR_scale=LR_scale)
+    params['device'] = DEVICE = device 
+    
+    if model_size == 'base':
+        # 논문에 나오는 base 모델
+        params['max_len'] = max_len = 512
+        d_model = 512
+        n_heads = 8
+        n_layers = 6
+        d_ff = 2048
+        drop_p = 0.1
+        warmup_steps = 4000 
+        LR_scale = 1 # Noam scheduler에 peak LR 값 조절을 위해 곱해질 스케일 -> 최초 논문엔 언급X, 후속논문에 등장
+    elif model_size == 'small':
+        # Small 모델
+        params['max_len'] = max_len = 80
+        d_model = 256
+        n_heads = 8
+        n_layers = 3
+        d_ff = 512
+        drop_p = 0.1
+        # warmup_steps = int((99000 / BATCH_SIZE) * 0.05 * epoch) ## 논문에선 4,000 스탭 
+        warmup_steps = 1500
+        LR_scale = 2 # Noam scheduler에 peak LR 값 조절을 위해 곱해질 스케일 -> 최초 논문엔 언급X, 후속논문에 등장
+    else :
+        raise "model size should be selected in ['base', 'small']"
+    
+    # Load tokenizer
+    params['tokenizer'] = tokenizer = MarianTokenizer.from_pretrained('Helsinki-NLP/opus-mt-ko-en')
+    pad_idx = tokenizer.pad_token_id
+    
+    if criterion_type == 'ce':
+        criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
+    elif criterion_type == 'lsce':
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing, ignore_index=pad_idx)
+    
+    text = 'All params are defined!'
+    styled_text = click.style(text, fg='cyan', bold=True)
+    click.echo(styled_text)
+    click.echo(params)
+    
+    ### Train Start ###
 
+    data = pd.read_excel('대화체.xlsx')
+    custom_DS = CustomDataset(data)
 
-Train(model, train_DL, val_DL, criterion, optimizer)
+    train_DS, val_DS= torch.utils.data.random_split(custom_DS, [99000, 1000])
+
+    train_DL = torch.utils.data.DataLoader(train_DS, batch_size=BATCH_SIZE, shuffle=True)
+    val_DL = torch.utils.data.DataLoader(val_DS, batch_size=BATCH_SIZE, shuffle=True)
+
+    pad_idx = tokenizer.pad_token_id
+    vocab_size = tokenizer.vocab_size
+
+    model = Transformer(vocab_size, max_len, d_model, n_heads, n_layers, d_ff, drop_p, pad_idx).to(DEVICE)
+
+    # 논문에서 제시한 beta와 eps 사용 & 맨 처음 step 의 LR=0으로 출발 (warm-up)
+    optimizer = optim.Adam(model.parameters(), 
+                        lr=0, 
+                        betas=(0.9, 0.98), 
+                        eps=1e-9,
+                        weight_decay=1e-5, ## l2-Regularization
+                        ) 
+    params['scheduler'] = NoamScheduler(optimizer, d_model=d_model, warmup_steps=warmup_steps, LR_scale=LR_scale)
+
+    Train(model, train_DL, val_DL, criterion, optimizer, params)
+
+    text = 'Train is done!'
+    styled_text = click.style(text, fg='cyan', bold=True)
+    click.echo(styled_text)
+
+if __name__ == "__main__":    
+
+    main()
