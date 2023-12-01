@@ -505,7 +505,7 @@ def main(batch:int=128,
     params['epoch'] = epoch ## 논문에선 약 560 에포크(10만 스탭) 진행
 
     params['save_model_path'] = f'./results/translator_{criterion_type}' if criterion_type=='ce' else f'./results/translator_{criterion_type}{label_smoothing}'
-    params['save_history_path'] = f'./results/translator_history_{criterion_type}.pt' if criterion_type=='ce' else f'./results/translator_history_{criterion_type}{label_smoothing}'
+    params['save_history_path'] = f'./results/translator_history_{criterion_type}.pt' if criterion_type=='ce' else f'./results/translator_history_{criterion_type}{label_smoothing}.pt'
 
     params['device'] = DEVICE = device 
     
