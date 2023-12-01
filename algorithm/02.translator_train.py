@@ -44,37 +44,6 @@ class NoamScheduler:
         minimum_factor = min(self.step_count ** -0.5, self.step_count * self.warmup_steps ** -1.5)
         return self._d_model_factor * minimum_factor
         
-        
-class LabelSmoothingCrossEntropyLoss(nn.Module):
-    def __init__(self, smoothing=0.1, ignore_index=65000):
-        super(LabelSmoothingCrossEntropyLoss, self).__init__()
-        self.smoothing = smoothing
-        self.ignore_index = ignore_index
-
-    def forward(self, input, target):
-        log_probs = F.log_softmax(input, dim=-1)
-        n_classes = input.size(-1)
-
-        with torch.no_grad():
-            true_dist = torch.zeros_like(log_probs)
-            ignore = target == self.ignore_index
-            non_ignore = ~ignore
-            true_dist.fill_(self.smoothing / (n_classes - 1))
-            true_dist[non_ignore] = 0
-
-            # 타겟 클래스에 (1 - 스무딩)을 적용하고, 무시할 인덱스는 그대로 0을 유지
-            true_dist.scatter_add_(1, target.unsqueeze(1), (1.0 - self.smoothing))
-
-            # 무시할 인덱스에 대한 마스크를 생성
-            mask = non_ignore
-
-        loss = -true_dist * log_probs
-        loss = loss.masked_select(mask.unsqueeze(1)).mean()
-
-        return loss
-
-
-    
 
 class MHA(nn.Module):
     def __init__(self, d_model, n_heads):
