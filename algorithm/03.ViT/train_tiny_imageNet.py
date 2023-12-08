@@ -1,15 +1,26 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from torch.optim.lr_scheduler import CosineAnnealingLR
-import torchvision
-import torchvision.transforms as transforms
+from torchvision.transforms.autoaugment import AutoAugmentPolicy
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 from torch.optim.lr_scheduler import _LRScheduler
 
+from PIL import Image
 import math
-import matplotlib.pyplot as plt
 import time
+import os            
+from tqdm import tqdm
+from sklearn.metrics import confusion_matrix
+import pandas as pd
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+
+
+img_size = 112
+patch_size = 8
+num_classes = 200
+dropout = 0.1
+
 
 class PatchEmbedding(nn.Module):
     """
@@ -224,51 +235,103 @@ class VisionTransformer(nn.Module):
         cls_token_output = x[:, 0]  # 첫 번째 토큰 (cls_token) 추출
         x = self.head(cls_token_output)  # 최종 분류를 위한 선형 레이어
         return x
-    
-# 모델 테스트 - 임의의 이미지 데이터 생성 (B, C, W, H)
-test_img = torch.randn(2, 3, 224, 224) 
 
 # 모델 초기화
-vit = VisionTransformer(img_size=224, 
-                        patch_size=16, 
-                        num_classes=100, 
-                        dropout=0.0,
+vit = VisionTransformer(img_size=img_size, 
+                        patch_size=patch_size, 
+                        num_classes=num_classes, 
+                        dropout=dropout,
                         estimate_params=True) # 파라미터 수를 측정하고 싶으면 True
-output = vit(test_img)     # 테스트 이미지를 모델에 통과
 
 
 batch_size = 512
-num_workers = 8
-num_classes = 100
+num_workers = 16
 
-# label_smoothing = 0.1
-learning_rate = 0.001
+label_smoothing = 0.1
+learning_rate = 0.003
 epochs = 300
 
-device = 'cuda:3'
-model_path = 'vit_cifar100.pth'  # 모델 저장 경로
+device = 'cuda:2'
+model_path = 'tiny_imageNet.pth'  # 모델 저장 경로
 
-# 데이터 증강을 위한 전처리
-transform_train = transforms.Compose([
-    transforms.RandomResizedCrop(224),
-    transforms.RandomHorizontalFlip(),  # 50% 확률로 수평 뒤집기
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # 색상 변경
+# 데이터셋 경로 설정
+data_dir = './data/tiny-imagenet-200'  # Tiny ImageNet 데이터셋이 저장된 경로
+# WordNet ID와 클래스 이름을 매핑하는 사전을 생성합니다.
+id_to_class = {}
+with open(os.path.join(data_dir, 'wnids.txt'), 'r') as f:
+    for idx, line in enumerate(f):
+        wordnet_id = line.strip()
+        id_to_class[idx] = wordnet_id
+
+# Transforms 정의하기
+transform = transforms.Compose([
+    transforms.Resize((112, 112)),
+    transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
     transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
-transform_test = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-])
+# 클래스 이름 목록을 만듭니다.
+class_names = list(id_to_class.values())
 
-trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+# 클래스 이름을 정수 인덱스로 매핑하는 사전 생성
+class_to_idx = {class_name: idx for idx, class_name in enumerate(class_names)}
 
-testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+# 사용자 정의 데이터셋 클래스
+class TinyImageNetDataset(Dataset):
+    def __init__(self, root_dir, transform=None, is_train=True):
+        """
+        Args:
+            root_dir (string): 데이터셋의 디렉토리 경로.
+            transform (callable, optional): 적용할 transform.
+            is_train (bool, optional): 학습 데이터셋인지 테스트 데이터셋인지 구분.
+        """
+        self.root_dir = root_dir
+        self.transform = transform
+        self.is_train = is_train
+        self.images = []  # 이미지 파일 경로를 저장할 리스트
+        self.labels = []  # 레이블을 저장할 리스트
 
+        # 이미지와 레이블을 로드하는 로직
+        if is_train:
+            for class_dir in os.listdir(os.path.join(root_dir, 'train')):
+                class_dir_path = os.path.join(root_dir, 'train', class_dir, 'images')
+                for img_file in os.listdir(class_dir_path):
+                    self.images.append(os.path.join(class_dir_path, img_file))
+                    self.labels.append(class_dir)
+        else:
+            with open(os.path.join(root_dir, 'val', 'val_annotations.txt'), 'r') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    img_file, wordnet_id = parts[0], parts[1]
+                    self.images.append(os.path.join(root_dir, 'val', 'images', img_file))
+                    class_name = id_to_class.get(wordnet_id, "")
+                    self.labels.append(class_name)
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        img_name = self.images[idx]
+        image = Image.open(img_name).convert('RGB')
+
+        if self.transform:
+            image = self.transform(image)
+
+        class_name = self.labels[idx]
+        if class_name in class_to_idx:
+            label_idx = class_to_idx[class_name]  # 클래스 이름을 정수 인덱스로 변환
+        else:
+            print(f"Class name '{class_name}' not found in class_to_idx")
+            label_idx = -1
+        return image, label_idx
+    
+
+# 데이터셋 인스턴스 생성
+trainset = TinyImageNetDataset(data_dir, transform=transform, is_train=True)
+
+# DataLoader 설정
+trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True)
 
 class WarmupCosineAnnealingLR(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, total_steps, last_epoch=-1):
@@ -277,18 +340,20 @@ class WarmupCosineAnnealingLR(_LRScheduler):
         super(WarmupCosineAnnealingLR, self).__init__(optimizer, last_epoch)
 
     def get_lr(self):
-        if self.last_epoch < self.warmup_steps:
+        if self.last_epoch < self.warmup_steps: # during warmup
             return [base_lr * self.last_epoch / self.warmup_steps for base_lr in self.base_lrs]
-        else:
-            cosine_decay = 0.5 * (1 + math.cos(math.pi * (self.last_epoch - self.warmup_steps) / (self.total_steps - self.warmup_steps)))
+        else: # post warmup
+            current_gap = self.last_epoch - self.warmup_steps
+            total_gap = self.total_steps - self.warmup_steps
+            cosine_decay = 0.5 * (1 + math.cos(math.pi * current_gap / total_gap))
             return [base_lr * cosine_decay for base_lr in self.base_lrs]
         
-
 total_steps = len(trainloader) * epochs
-warmup_steps = total_steps * 0.1
+warmup_steps = min(total_steps * 0.2, 10000)
+print(f"\nWarmUp Step is {warmup_steps} of Total Step {total_steps}\n")
 
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(vit.parameters(), lr=learning_rate, betas=[0.9,0.999], weight_decay=0.03)
+criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+optimizer = optim.Adam(vit.parameters(), lr=learning_rate, betas=[0.9,0.999], weight_decay=0.3)
 scheduler = WarmupCosineAnnealingLR(optimizer, warmup_steps, total_steps)
 
 class EarlyStopping:
@@ -309,15 +374,12 @@ class EarlyStopping:
         else:
             self.best_loss = val_loss
             self.counter = 0
-            
-from tqdm import tqdm
 
 training_time = 0
-early_stopping = EarlyStopping(patience=int(epochs*0.1))
+early_stopping = EarlyStopping(patience=10)
 losses = []
-val_losses = []
 lrs = []
-best_val_loss = float('inf')
+best_loss = float('inf')
 
 vit_save = False
 vit.to(device)
@@ -340,57 +402,58 @@ for epoch in range(epochs):
         lrs.append(lr)
     epoch_loss = running_loss / len(trainloader)
     losses.append(epoch_loss)
-
-    # 검증 손실 계산
-    vit.eval()
-    val_loss = 0.0
-    with torch.no_grad():
-        for data in testloader:
-            inputs, labels = data[0].to(device), data[1].to(device)
-            outputs = vit(inputs)
-            loss = criterion(outputs, labels)
-            val_loss += loss.item()
-    val_loss /= len(testloader)
-    val_losses.append(val_loss)
-
+    
     # 모델 저장
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
+    if epoch_loss < best_loss:
+        best_loss = loss
         vit_save = True
         torch.save(vit.state_dict(), model_path)
 
     epoch_duration = time.time() - start_time
     training_time += epoch_duration
     if vit_save:
-        print(f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec - model saved!')
+        print(f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec - model saved!')
         vit_save = False
     else :
-        print(f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec')
+        print(f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec')
 
     # Early Stopping 체크
-    early_stopping(val_loss)
+    early_stopping(loss)
     if early_stopping.early_stop:
         print("Early stopping")
         break
+    
+torch.save(vit.state_dict(), './last_tiny_imagenet.pth')
 
-# # 학습 및 검증 손실 시각화
-# plt.figure(figsize=(12, 5))
-# plt.subplot(1, 2, 1)
-# plt.plot(losses, label='Training Loss')
-# plt.plot(val_losses, label='Validation Loss')
-# plt.title('Training & Validation Loss')
-# plt.xlabel('Epochs')
-# plt.ylabel('Loss')
-# plt.legend()
+# 예측 수행 및 레이블 저장
+all_preds = []
+all_labels = []
+with torch.no_grad():
+    for images, labels in trainloader:
+        images, labels = images.to(device), labels.to(device)
+        outputs = vit(images)
+        _, predicted = torch.max(outputs, 1)
+        all_preds.extend(predicted.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
 
-# plt.subplot(1, 2, 2)
-# plt.plot(lrs, label='Learning Rate')
-# plt.title('Learning Rate')
-# plt.xlabel('Batch number')
-# plt.ylabel('Learning Rate')
-# plt.legend()
-# plt.show()
+# 혼동 행렬 생성
+cm = confusion_matrix(all_labels, all_preds)
 
-print("="*120)
-print("\nFinished!!\n")
-print("="*120)
+# 예측과 실제 레이블
+y_true = all_labels  # 실제 레이블
+y_pred = all_preds  # 모델에 의해 예측된 레이블
+
+# 전체 데이터셋에 대한 정확도
+accuracy = accuracy_score(y_true, y_pred)
+
+# 평균 정밀도, 리콜, F1-Score ('weighted')
+precision, recall, f1_score, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted')
+
+# 판다스 데이터프레임으로 결과 정리
+performance_metrics = pd.DataFrame({
+    'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score'],
+    'Value': [accuracy, precision, recall, f1_score]
+})
+
+# 데이터프레임 출력
+print(performance_metrics)
