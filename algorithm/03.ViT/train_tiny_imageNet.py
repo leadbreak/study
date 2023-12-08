@@ -219,6 +219,11 @@ class VisionTransformer(nn.Module):
         self.norm = nn.LayerNorm(embed_dim)
         self.head = nn.Linear(embed_dim, num_classes)
         self.dropout = nn.Dropout(dropout)
+        
+        # 파라미터 초기화
+        for m in self.modules():
+            if hasattr(m, 'weight') and m.weight.dim() > 1: 
+                nn.init.xavier_uniform_(m.weight) 
 
     def forward(self, x):
         x = self.patch_embed(x)  # 이미지를 패치로 분할하고 임베딩
@@ -376,7 +381,7 @@ class EarlyStopping:
             self.counter = 0
 
 training_time = 0
-early_stopping = EarlyStopping(patience=10)
+# early_stopping = EarlyStopping(patience=30)
 losses = []
 lrs = []
 best_loss = float('inf')
@@ -411,17 +416,20 @@ for epoch in range(epochs):
 
     epoch_duration = time.time() - start_time
     training_time += epoch_duration
+    text = f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
+    
     if vit_save:
-        print(f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec - model saved!')
+        text += f' - model saved!'
+        print(text)
         vit_save = False
-    else :
-        print(f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec')
+    elif epoch % 5 == 4 :
+        print(text)
 
-    # Early Stopping 체크
-    early_stopping(loss)
-    if early_stopping.early_stop:
-        print("Early stopping")
-        break
+    # # Early Stopping 체크
+    # early_stopping(loss)
+    # if early_stopping.early_stop:
+    #     print("Early stopping")
+    #     break
     
 torch.save(vit.state_dict(), './last_tiny_imagenet.pth')
 
