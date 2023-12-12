@@ -305,14 +305,14 @@ class WarmupCosineAnnealingLR(_LRScheduler):
         if self.last_epoch < self.warmup_steps:  # during warmup
             return [base_lr * self.last_epoch / self.warmup_steps for base_lr in self.base_lrs]
         else:  # post warmup
-            self.T_cur = (self.last_epoch - self.warmup_steps) % self.T_max
-            cosine_decay = 0.5 * (1 + math.cos(math.pi * self.T_cur / self.T_max))
+            self.T_cur = (self.last_epoch - self.warmup_steps) % self.t_max
+            cosine_decay = 0.5 * (1 + math.cos(math.pi * self.T_cur / self.t_max))
             return [base_lr * cosine_decay for base_lr in self.base_lrs]
             
         
 total_steps = len(train_loader) * epochs
 warmup_steps = min(total_steps * 0.2, 10000)
-print(f"\nWarmUp Step is {warmup_steps} of Total Step {total_steps}\n")
+print(f"\nWarmUp Step is {int(warmup_steps)}(epoch:{int(warmup_steps//len(train_loader)+1)}) of Total Step {total_steps}\n")
 
 criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 optimizer = optim.Adam(vit.parameters(), lr=learning_rate, betas=[0.9,0.999], weight_decay=0.03)
@@ -377,7 +377,7 @@ for epoch in range(epochs):
     epoch_loss = running_loss / len(train_loader)
     losses.append(epoch_loss)
     
-    cur_step = batch_size * epoch
+    cur_step = len(train_loader) * epoch
     val_loss = -1
     if cur_step > warmup_steps:    
         vit.eval()

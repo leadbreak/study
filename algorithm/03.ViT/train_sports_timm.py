@@ -127,10 +127,10 @@ for epoch in range(epochs):
     epoch_duration = time.time() - start_time
     training_time += epoch_duration
     if model_save:
-        print(f'Epoch {epoch + 1}, Loss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, LS: {smoothing_ratio}, Duration: {epoch_duration:.2f} sec - model saved!')
+        print(f'Epoch {epoch + 1}, Loss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec - model saved!')
         model_save = False
     else :
-        print(f'Epoch {epoch + 1}, Loss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, LS: {smoothing_ratio}, Duration: {epoch_duration:.2f} sec')
+        print(f'Epoch {epoch + 1}, Loss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec')
 
 torch.save(model.state_dict(), './last_test_sports.pth')
 
