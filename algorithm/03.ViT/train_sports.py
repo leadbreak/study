@@ -1,15 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision.transforms.autoaugment import AutoAugmentPolicy
-from torch.utils.data import Dataset, DataLoader
+from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader
 from torchvision import transforms
 from torch.optim.lr_scheduler import _LRScheduler
-
-from PIL import Image
+from torch.cuda.amp import autocast, GradScaler
 import math
-import time
-import os            
+import time       
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix
 import pandas as pd
@@ -18,7 +16,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 img_size = 224
 patch_size = 16
-num_classes = 200
+num_classes = 100
 dropout = 0.1
 
 batch_size = 512
@@ -26,19 +24,36 @@ num_workers = 64
 
 label_smoothing = 0.1
 learning_rate = 1e-3
-epochs = 10 
+epochs = 1000 
 
-device = 'cuda:2'
-model_path = 'tiny_imageNet.pth'  # 모델 저장 경로
+device = 'cuda:4'
+model_path = 'sports.pth'  # 모델 저장 경로
 
 # 데이터셋 경로 설정
-data_dir = './data/tiny-imagenet-200'  # Tiny ImageNet 데이터셋이 저장된 경로
-# WordNet ID와 클래스 이름을 매핑하는 사전을 생성합니다.
-id_to_class = {}
-with open(os.path.join(data_dir, 'wnids.txt'), 'r') as f:
-    for idx, line in enumerate(f):
-        wordnet_id = line.strip()
-        id_to_class[idx] = wordnet_id
+data_dir = './data/sports'  # Tiny ImageNet 데이터셋이 저장된 경로
+
+# Transforms 정의하기
+train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    transforms.RandomErasing(p=0.9, scale=(0.02, 0.3)),
+])
+
+test_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+# dataset load
+train_data = ImageFolder('./data/sports/train', transform=train_transform)
+valid_data = ImageFolder('./data/sports/valid', transform=test_transform)
+test_data = ImageFolder('./data/sports/test', transform=test_transform)
+
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
 class PatchEmbedding(nn.Module):
     """
@@ -235,13 +250,22 @@ class VisionTransformer(nn.Module):
         ])
 
         self.norm = nn.LayerNorm(embed_dim)
-        self.head = nn.Linear(embed_dim, num_classes)
+        self.head = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(embed_dim, num_classes),
+        )
         self.dropout = nn.Dropout(dropout)
         
-        # 파라미터 초기화
-        for m in self.modules():
-            if hasattr(m, 'weight') and m.weight.dim() > 1: 
-                nn.init.xavier_uniform_(m.weight) 
+    # 파라미터 초기화
+    def _init_weights(self, m):
+        # He 초기화 적용
+        if isinstance(m, (nn.Linear, nn.Conv2d)):
+            nn.init.kaiming_uniform_(m.weight)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
 
     def forward(self, x):
         x = self.patch_embed(x)  # 이미지를 패치로 분할하고 임베딩
@@ -259,106 +283,40 @@ class VisionTransformer(nn.Module):
         x = self.head(cls_token_output)  # 최종 분류를 위한 선형 레이어
         return x
 
-# 모델 초기화
+# 모델 정의
 vit = VisionTransformer(img_size=img_size, 
                         patch_size=patch_size, 
                         num_classes=num_classes, 
                         dropout=dropout,
                         estimate_params=True) # 파라미터 수를 측정하고 싶으면 True
 
-# Transforms 정의하기
-transform = transforms.Compose([
-    transforms.RandomResizedCrop((img_size, img_size), interpolation=transforms.InterpolationMode.LANCZOS),
-    transforms.RandomHorizontalFlip(),
-    transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-
-# 클래스 이름 목록을 만듭니다.
-class_names = list(id_to_class.values())
-
-# 클래스 이름을 정수 인덱스로 매핑하는 사전 생성
-class_to_idx = {class_name: idx for idx, class_name in enumerate(class_names)}
-
-# 사용자 정의 데이터셋 클래스
-class TinyImageNetDataset(Dataset):
-    def __init__(self, root_dir, transform=None, is_train=True):
-        """
-        Args:
-            root_dir (string): 데이터셋의 디렉토리 경로.
-            transform (callable, optional): 적용할 transform.
-            is_train (bool, optional): 학습 데이터셋인지 테스트 데이터셋인지 구분.
-        """
-        self.root_dir = root_dir
-        self.transform = transform
-        self.is_train = is_train
-        self.images = []  # 이미지 파일 경로를 저장할 리스트
-        self.labels = []  # 레이블을 저장할 리스트
-
-        # 이미지와 레이블을 로드하는 로직
-        if is_train:
-            for class_dir in os.listdir(os.path.join(root_dir, 'train')):
-                class_dir_path = os.path.join(root_dir, 'train', class_dir, 'images')
-                for img_file in os.listdir(class_dir_path):
-                    self.images.append(os.path.join(class_dir_path, img_file))
-                    self.labels.append(class_dir)
-        else:
-            with open(os.path.join(root_dir, 'val', 'val_annotations.txt'), 'r') as f:
-                for line in f:
-                    parts = line.strip().split()
-                    img_file, wordnet_id = parts[0], parts[1]
-                    self.images.append(os.path.join(root_dir, 'val', 'images', img_file))
-                    class_name = id_to_class.get(wordnet_id, "")
-                    self.labels.append(class_name)
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        img_name = self.images[idx]
-        image = Image.open(img_name).convert('RGB')
-
-        if self.transform:
-            image = self.transform(image)
-
-        class_name = self.labels[idx]
-        if class_name in class_to_idx:
-            label_idx = class_to_idx[class_name]  # 클래스 이름을 정수 인덱스로 변환
-        else:
-            print(f"Class name '{class_name}' not found in class_to_idx")
-            label_idx = -1
-        return image, label_idx
-    
-
-# 데이터셋 인스턴스 생성
-trainset = TinyImageNetDataset(data_dir, transform=transform, is_train=True)
-
-# DataLoader 설정
-trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True)
+# 모델 초기화
+vit.apply(vit._init_weights)
 
 class WarmupCosineAnnealingLR(_LRScheduler):
-    def __init__(self, optimizer, warmup_steps, total_steps, last_epoch=-1):
+    def __init__(self, optimizer, warmup_steps, total_steps, t_max, last_epoch=-1):
         self.warmup_steps = warmup_steps
         self.total_steps = total_steps
+        self.t_max = t_max
+        self.t_cur = 0
         super(WarmupCosineAnnealingLR, self).__init__(optimizer, last_epoch)
 
     def get_lr(self):
-        if self.last_epoch < self.warmup_steps: # during warmup
+        if self.last_epoch < self.warmup_steps:  # during warmup
             return [base_lr * self.last_epoch / self.warmup_steps for base_lr in self.base_lrs]
-        else: # post warmup
-            current_gap = self.last_epoch - self.warmup_steps
-            total_gap = self.total_steps - self.warmup_steps
-            cosine_decay = 0.5 * (1 + math.cos(math.pi * current_gap / total_gap))
+        else:  # post warmup
+            self.T_cur = (self.last_epoch - self.warmup_steps) % self.T_max
+            cosine_decay = 0.5 * (1 + math.cos(math.pi * self.T_cur / self.T_max))
             return [base_lr * cosine_decay for base_lr in self.base_lrs]
+            
         
-total_steps = len(trainloader) * epochs
+total_steps = len(train_loader) * epochs
 warmup_steps = min(total_steps * 0.2, 10000)
 print(f"\nWarmUp Step is {warmup_steps} of Total Step {total_steps}\n")
 
 criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 optimizer = optim.Adam(vit.parameters(), lr=learning_rate, betas=[0.9,0.999], weight_decay=0.03)
-scheduler = WarmupCosineAnnealingLR(optimizer, warmup_steps, total_steps)
+scheduler = WarmupCosineAnnealingLR(optimizer, warmup_steps, total_steps, t_max=total_steps//5)
 
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0):
@@ -382,40 +340,67 @@ class EarlyStopping:
 training_time = 0
 # early_stopping = EarlyStopping(patience=30)
 losses = []
+val_losses = []
 lrs = []
 best_loss = float('inf')
 
 vit_save = False
 vit.to(device)
 
+# GradScaler 초기화
+scaler = GradScaler()
+
 for epoch in range(epochs):
     vit.train()
     start_time = time.time()
     running_loss = 0.0
-    pbar = tqdm(enumerate(trainloader), total=len(trainloader), desc=f"Epoch {epoch + 1}")
+    pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch + 1}")
+    
     for i, data in pbar:
         inputs, labels = data[0].to(device), data[1].to(device)
         optimizer.zero_grad()
-        outputs = vit(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
+
+        # AutoCast 적용
+        with autocast():
+            outputs = vit(inputs)
+            loss = criterion(outputs, labels)
+
+        # Scaled Backward & Optimizer Step
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
         scheduler.step()
         running_loss += loss.item()
         lr = optimizer.param_groups[0]["lr"]
         lrs.append(lr)
-    epoch_loss = running_loss / len(trainloader)
+    epoch_loss = running_loss / len(train_loader)
     losses.append(epoch_loss)
     
-    # 모델 저장
-    if epoch_loss < best_loss:
-        best_loss = epoch_loss
-        vit_save = True
-        torch.save(vit.state_dict(), model_path)
+    cur_step = batch_size * epoch
+    val_loss = -1
+    if cur_step > warmup_steps:    
+        vit.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for data in valid_loader:
+                inputs, labels = data[0].to(device), data[1].to(device)
+                outputs = vit(inputs)
+                loss = criterion(outputs, labels)
+                val_loss += loss.item()
+        val_loss /= len(test_loader)
+        val_losses.append(val_loss)
+        
+        # 모델 저장
+        if val_loss < best_loss:
+            best_loss = val_loss
+            vit_save = True
+            torch.save(vit.state_dict(), model_path)
 
     epoch_duration = time.time() - start_time
     training_time += epoch_duration
-    text = f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
+    
+    text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
     
     if vit_save:
         text += f' - model saved!'
@@ -432,13 +417,13 @@ for epoch in range(epochs):
     #     print("Early stopping")
     #     break
     
-torch.save(vit.state_dict(), './last_tiny_imagenet.pth')
+torch.save(vit.state_dict(), './last_sports.pth')
 
 # 예측 수행 및 레이블 저장
 all_preds = []
 all_labels = []
 with torch.no_grad():
-    for images, labels in trainloader:
+    for images, labels in test_loader:
         images, labels = images.to(device), labels.to(device)
         outputs = vit(images)
         _, predicted = torch.max(outputs, 1)
