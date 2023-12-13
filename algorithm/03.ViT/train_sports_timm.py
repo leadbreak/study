@@ -24,7 +24,7 @@ device_gpu = 'cuda:3'
 
 label_smoothing = 0.1
 learning_rate = 0.001
-epochs = 300
+epochs = 1000
 
 model_path = 'test_model.pth'  # 모델 저장 경로
 
@@ -64,7 +64,9 @@ model.to(device)
 
 criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
+step_size = len(trainloader)*50
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.5)
+# scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, min_lr=1e-5)
 
 from tqdm import tqdm
 

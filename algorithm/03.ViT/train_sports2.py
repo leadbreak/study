@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
@@ -23,8 +24,8 @@ batch_size = 512
 num_workers = 64
 
 label_smoothing = 0.1
-learning_rate = 0.001
-epochs = 100 
+learning_rate = 3e-3
+epochs = 1000 
 
 device = 'cuda:4'
 model_path = 'sports.pth'  # 모델 저장 경로
@@ -34,7 +35,7 @@ data_dir = './data/sports'  # Tiny ImageNet 데이터셋이 저장된 경로
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
+    transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.BILINEAR),
     transforms.RandomHorizontalFlip(),
     # transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
     transforms.ToTensor(),
@@ -111,65 +112,91 @@ class PositionalEmbedding(nn.Module):
         super().__init__()
         self.scale = torch.sqrt(torch.tensor(embed_dim, dtype=torch.float32))
         self.position_embedding = nn.Parameter(torch.zeros(1, num_patches+1, embed_dim)) # [1, 패치 수+1, 임베딩 차원]
+        self.norm = nn.LayerNorm(embed_dim)
 
     def forward(self, x):
         x = self.scale*x + self.position_embedding # scaled x에 위치 정보를 임베딩에 더함 
         # x += self.position_embedding  
+        x = self.norm(x)
         return x # [배치 크기, 패치 수+1, 임베딩 차원]
 
 # 파라미터 수 비교를 위해 가져온 이전 구현체
 class MHA(nn.Module):
-    def __init__(self, d_model, n_heads):
+    def __init__(self, d_model, n_heads, dropout, qkv_bias:bool=True, fused_attention:bool=True):
         super().__init__()
-
+        self.fused_attention = fused_attention
         self.d_model = d_model
         self.n_heads = n_heads
         assert d_model % n_heads == 0, f'd_model ({d_model})은 n_heads ({n_heads})로 나누어 떨어져야 합니다.'
 
-        self.head_dim = d_model // n_heads  # int 형변환 제거
+        self.head_dim = d_model // n_heads
+        self.scale = self.head_dim ** 0.5
 
-        # 쿼리, 키, 값에 대한 선형 변환
-        self.fc_q = nn.Linear(d_model, d_model) 
-        self.fc_k = nn.Linear(d_model, d_model) 
-        self.fc_v = nn.Linear(d_model, d_model)
+        # 쿼리, 키, 값에 대한 결합된 선형 변환
+        self.fc_qkv = nn.Linear(d_model, d_model * 3, bias=qkv_bias)
         self.fc_o = nn.Linear(d_model, d_model)
         
-        # drop for query, key, attention
-        self.dropout = nn.Dropout(0.1)
-
-        # 어텐션 점수를 위한 스케일 요소
-        self.scale = torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+        # normalize
+        self.q_norm = nn.LayerNorm(self.head_dim)
+        self.k_norm = nn.LayerNorm(self.head_dim)
         
+        # dropout
+        self.attn_drop = nn.Dropout(dropout)
+        self.proj_drop = nn.Dropout(dropout)
 
-    def forward(self, Q, K, V):
-        batch_size = Q.shape[0]
+    def forward(self, x):
+        # batch_size = x.shape[0]
+        B, N, C = x.shape
 
-        # 쿼리, 키, 값에 대한 선형 변환 수행
-        Q = self.dropout(self.fc_q(Q))
-        K = self.dropout(self.fc_k(K))
-        V = self.fc_v(V)
+        # 결합된 선형 변환 수행
+        qkv = self.fc_qkv(x)
+        qkv = qkv.reshape(B, N, 3, self.n_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)  # 분리
+        q, k = self.q_norm(q), self.k_norm(k) # Norm
+        
+        if self.fused_attention:
+            attention = F.scaled_dot_product_attention(
+                q, k, v,
+                dropout_p=self.attn_drop.p
+            )
+        else :            
+            # 스케일드 닷-프로덕트 어텐션 계산
+            q = q * self.scale
+            attn = q @ k.transpose(-2, -1)
+            attn = attn.softmax(dim=-1)
+            attn = self.attn_drop(attn)
+            attention = attn @ v
 
-        # 멀티 헤드 어텐션을 위해 텐서 재구성 및 순서 변경
-        Q = Q.reshape(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
-        K = K.reshape(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
-        V = V.reshape(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
-
-        # 스케일드 닷-프로덕트 어텐션 계산
-        attention_score = Q @ K.permute(0, 1, 3, 2) / self.scale
-
-        # 소프트맥스를 사용하여 어텐션 확률 계산
-        attention_dist = torch.softmax(attention_score, dim=-1)
-
-        # 어텐션 결과
-        attention = self.dropout(attention_dist) @ V
-
-        # 어텐션 헤드 재조립
-        x = attention.permute(0, 2, 1, 3).reshape(batch_size, -1, self.d_model)
-
-        # 최종 선형 변환
-        x = self.dropout(self.fc_o(x))
-
+        # 어텐션 헤드 재조립 및 최종 선형 변환
+        x = attention.transpose(1, 2).reshape(B, -1, self.d_model)
+        x = self.fc_o(x)
+        x = self.proj_drop(x)
         return x
+    
+# New Method 1 : transformer block에 작은 스케일 인자 곱하기
+class LayerScale(nn.Module):
+    def __init__(self, dim, init_values=1e-5):
+        super().__init__()
+        self.gamma = nn.Parameter(init_values * torch.ones((dim)))
+
+    def forward(self, x):
+        return self.gamma * x
+
+# New Method 2 : DropPath
+class DropPath(nn.Module):
+    def __init__(self, drop_prob=None):
+        super(DropPath, self).__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        if self.drop_prob == 0. or not self.training:
+            return x
+        keep_prob = 1 - self.drop_prob
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff input dims
+        random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+        random_tensor.floor_()  # binarize
+        output = x.div(keep_prob) * random_tensor
+        return output
     
 class TransformerEncoderLayer(nn.Module):
     """
@@ -190,9 +217,15 @@ class TransformerEncoderLayer(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
+        
+        self.ls1 = LayerScale(embed_dim)
+        self.ls2 = LayerScale(embed_dim)
+        
+        # self.drop_path = DropPath(dropout) if dropout > .0 else nn.Identity()
+        self.drop_path = nn.Identity()
         self.estimate_params = estimate_params
         if estimate_params:
-            self.attn = MHA(embed_dim, num_heads)
+            self.attn = MHA(embed_dim, num_heads, dropout)
         else :
             self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout) # [attention_output, attention weights]        
 
@@ -210,12 +243,12 @@ class TransformerEncoderLayer(nn.Module):
         # 멀티헤드 어텐션과 피드포워드 네트워크를 적용
         x = self.norm1(x)
         if self.estimate_params:
-            x = x + self.attn(x, x, x)
+            x = x + self.drop_path(self.ls1(self.attn(x)))
         else :
-            x = x + self.attn(x, x, x)[0] # attention output만 사용
+            x = x + self.drop_path(self.ls1(self.attn(x, x, x)[0])) # attention output만 사용
         
         x2 = self.norm2(x)
-        x = x + self.mlp(x2)
+        x = x + self.drop_path(self.ls2(self.mlp(x2)))
         return x
     
 class VisionTransformer(nn.Module):
@@ -298,7 +331,9 @@ vit = VisionTransformer(img_size=img_size,
                         num_classes=num_classes, 
                         dropout=dropout,
                         embed_dim=768,
+                        num_layers=12,
                         num_heads=12,
+                        mlp_ratio=4.,
                         estimate_params=True) # 파라미터 수를 측정하고 싶으면 True
 
 # # 모델 초기화
@@ -320,10 +355,11 @@ class WarmupCosineAnnealingLR(_LRScheduler):
             cosine_decay = 0.5 * (1 + math.cos(math.pi * self.T_cur / self.t_max))
             return [base_lr * cosine_decay for base_lr in self.base_lrs]
             
-        
+
 total_steps = len(train_loader) * epochs
-warmup_steps = min(total_steps * 0.2, 10000)
-print(f"\nWarmUp Step is {int(warmup_steps)}(epoch:{int(warmup_steps//len(train_loader)+1)}) of Total Step {total_steps}\n")
+# warmup_steps = min(total_steps * 0.2, 10000)
+warmup_steps = int(total_steps*0.1)
+print(f"\nWarmUp Step is {int(warmup_steps)}(epoch:{int(warmup_steps//len(train_loader))}) of Total Step {total_steps}\n")
 
 criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
@@ -333,7 +369,9 @@ criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
 # Method for Small Dataset
 optimizer = optim.Adam(vit.parameters(), lr=learning_rate)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*10, gamma=0.5)
+# scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*10, gamma=0.5)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=3, threshold_mode='rel', threshold=1e-2, min_lr=1e-5)
+
 
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0):
@@ -387,12 +425,13 @@ for epoch in range(epochs):
         scaler.step(optimizer)
         scaler.update()
 
-        scheduler.step()
+        # scheduler.step()
         running_loss += loss.item()
         lr = optimizer.param_groups[0]["lr"]
         lrs.append(lr)
     epoch_loss = running_loss / len(train_loader)
     losses.append(epoch_loss)
+    scheduler.step(epoch_loss)
     
     cur_step = len(train_loader) * epoch
     val_loss = -1
@@ -433,6 +472,7 @@ for epoch in range(epochs):
     # if early_stopping.early_stop:
     #     print("Early stopping")
     #     break
+    
     
 torch.save(vit.state_dict(), './last_sports.pth')
 

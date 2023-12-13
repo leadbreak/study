@@ -19,14 +19,14 @@ patch_size = 16
 num_classes = 100
 dropout = 0.1
 
-batch_size = 512
+batch_size = 256
 num_workers = 64
 
 label_smoothing = 0.1
-learning_rate = 0.001
-epochs = 100 
+learning_rate = 1e-3
+epochs = 150 
 
-device = 'cuda:4'
+device = 'cuda:2'
 model_path = 'sports.pth'  # 모델 저장 경로
 
 # 데이터셋 경로 설정
@@ -55,6 +55,31 @@ test_data = ImageFolder('./data/sports/test', transform=test_transform)
 train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+
+import timm
+
+class ConvNextAndPatchEmbedding(nn.Module):
+    def __init__(self, img_size=32, patch_size=2, in_channels=3, embed_dim=768):
+        super().__init__()
+        # ConvNeXt 모델 로드
+        self.convnext = timm.create_model('convnext_tiny', pretrained=True)
+        # ConvNeXt 모델의 마지막 분류 레이어 제거
+        self.convnext.head = nn.Identity()
+
+        # 이미지를 원래 크기로 복원하기 위한 Adaptive Pooling 레이어
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((img_size, img_size))
+
+        # 패치 임베딩
+        self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, embed_dim)
+
+    def forward(self, x):
+        # ConvNeXt 모델을 통과
+        x = self.convnext(x)
+        # Adaptive Pooling을 통해 원본 크기로 복원
+        x = self.adaptive_pool(x)
+        # 패치 임베딩
+        x = self.patch_embed(x)
+        return x
 
 class PatchEmbedding(nn.Module):
     """
@@ -116,7 +141,7 @@ class PositionalEmbedding(nn.Module):
         x = self.scale*x + self.position_embedding # scaled x에 위치 정보를 임베딩에 더함 
         # x += self.position_embedding  
         return x # [배치 크기, 패치 수+1, 임베딩 차원]
-
+    
 # 파라미터 수 비교를 위해 가져온 이전 구현체
 class MHA(nn.Module):
     def __init__(self, d_model, n_heads):
@@ -133,9 +158,6 @@ class MHA(nn.Module):
         self.fc_k = nn.Linear(d_model, d_model) 
         self.fc_v = nn.Linear(d_model, d_model)
         self.fc_o = nn.Linear(d_model, d_model)
-        
-        # drop for query, key, attention
-        self.dropout = nn.Dropout(0.1)
 
         # 어텐션 점수를 위한 스케일 요소
         self.scale = torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
@@ -145,8 +167,8 @@ class MHA(nn.Module):
         batch_size = Q.shape[0]
 
         # 쿼리, 키, 값에 대한 선형 변환 수행
-        Q = self.dropout(self.fc_q(Q))
-        K = self.dropout(self.fc_k(K))
+        Q = self.fc_q(Q) 
+        K = self.fc_k(K)
         V = self.fc_v(V)
 
         # 멀티 헤드 어텐션을 위해 텐서 재구성 및 순서 변경
@@ -161,13 +183,13 @@ class MHA(nn.Module):
         attention_dist = torch.softmax(attention_score, dim=-1)
 
         # 어텐션 결과
-        attention = self.dropout(attention_dist) @ V
+        attention = attention_dist @ V
 
         # 어텐션 헤드 재조립
         x = attention.permute(0, 2, 1, 3).reshape(batch_size, -1, self.d_model)
 
         # 최종 선형 변환
-        x = self.dropout(self.fc_o(x))
+        x = self.fc_o(x)
 
         return x
     
@@ -188,8 +210,7 @@ class TransformerEncoderLayer(nn.Module):
     """
     def __init__(self, embed_dim:int, num_heads:int, mlp_ratio:float=4.0, dropout:float=0.1, estimate_params:bool=False):
         super().__init__()
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.norm2 = nn.LayerNorm(embed_dim)
+        self.norm = nn.LayerNorm(embed_dim)
         self.estimate_params = estimate_params
         if estimate_params:
             self.attn = MHA(embed_dim, num_heads)
@@ -201,20 +222,19 @@ class TransformerEncoderLayer(nn.Module):
             nn.Linear(embed_dim, mlp_hidden_dim),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.LayerNorm(mlp_hidden_dim),
             nn.Linear(mlp_hidden_dim, embed_dim),
             nn.Dropout(dropout),
         )
 
     def forward(self, x):
         # 멀티헤드 어텐션과 피드포워드 네트워크를 적용
-        x = self.norm1(x)
         if self.estimate_params:
+            x = self.norm(x)
             x = x + self.attn(x, x, x)
         else :
             x = x + self.attn(x, x, x)[0] # attention output만 사용
         
-        x2 = self.norm2(x)
+        x2 = self.norm(x)
         x = x + self.mlp(x2)
         return x
     
@@ -246,8 +266,8 @@ class VisionTransformer(nn.Module):
                  estimate_params:bool=False):
         super().__init__()
 
-        self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, embed_dim)
-        num_patches = self.patch_embed.n_patches
+        self.patch_embed = ConvNextAndPatchEmbedding(img_size, patch_size, in_channels, embed_dim)
+        num_patches = int((img_size / patch_size)**2)
         self.pos_embed = PositionalEmbedding(num_patches, embed_dim)
 
         self.transformer_encoders = nn.ModuleList([
@@ -256,25 +276,22 @@ class VisionTransformer(nn.Module):
         ])
 
         self.norm = nn.LayerNorm(embed_dim)
-        self.head = nn.Linear(embed_dim, num_classes)
+        self.head = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(embed_dim, num_classes),
+        )
         self.dropout = nn.Dropout(dropout)
         
-        self.init_weights()
-        
     # 파라미터 초기화
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.trunc_normal_(m.weight, std=.02)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.LayerNorm):
-                nn.init.zeros_(m.bias)
-                nn.init.ones_(m.weight)
-            elif isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out')
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
+    def _init_weights(self, m):
+        # He 초기화 적용
+        if isinstance(m, (nn.Linear, nn.Conv2d)):
+            nn.init.kaiming_uniform_(m.weight)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
 
     def forward(self, x):
         x = self.patch_embed(x)  # 이미지를 패치로 분할하고 임베딩
@@ -297,12 +314,10 @@ vit = VisionTransformer(img_size=img_size,
                         patch_size=patch_size, 
                         num_classes=num_classes, 
                         dropout=dropout,
-                        embed_dim=768,
-                        num_heads=12,
                         estimate_params=True) # 파라미터 수를 측정하고 싶으면 True
 
-# # 모델 초기화
-# vit.apply(vit._init_weights)
+# 모델 초기화
+vit.apply(vit._init_weights)
 
 class WarmupCosineAnnealingLR(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, total_steps, t_max, last_epoch=-1):
@@ -333,7 +348,7 @@ criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
 # Method for Small Dataset
 optimizer = optim.Adam(vit.parameters(), lr=learning_rate)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*10, gamma=0.5)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.9)
 
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0):
