@@ -15,11 +15,15 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import vit_better as vit_custom
 import click
 
-def load_data(data_dir:str,
+def load_data(img_size:int,
+              train_option:str,
+              data_dir:str,
               batch_size:int):
+        
     # Transforms 정의하기
     train_transform = transforms.Compose([
-        transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
+        transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
+        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         transforms.RandomErasing(p=0.9, scale=(0.02, 0.33)),
@@ -30,10 +34,17 @@ def load_data(data_dir:str,
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
 
+    if train_option == 'total':
+        train_path = valid_path = test_path = data_dir        
+    elif train_option == 'holdout':
+        train_path = data_dir+'/train'
+        valid_path = data_dir+'/valid'
+        test_path = data_dir+'/test'
+
     # dataset load
-    train_data = ImageFolder(data_dir, transform=train_transform)
-    valid_data = ImageFolder(data_dir, transform=test_transform)
-    test_data = ImageFolder(data_dir, transform=test_transform)
+    train_data = ImageFolder(train_path, transform=train_transform)
+    valid_data = ImageFolder(valid_path, transform=test_transform)
+    test_data = ImageFolder(test_path, transform=test_transform)
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
@@ -42,6 +53,7 @@ def load_data(data_dir:str,
     return train_loader, valid_loader, test_loader
 
 @click.command()
+@click.option('--train_option', default='holdout')
 @click.option('--data_dir', default='../data/sports')
 @click.option('--model_path', default=None)
 @click.option('--epochs', default=3)
@@ -60,6 +72,7 @@ def load_data(data_dir:str,
 @click.option('--estimate_params', default=True)
 @click.option('--fused_attention', default=True)
 def main(data_dir:str='../data/sports',
+         train_option:str='total',
          model_path:str=None,
          epochs:int=10,
          batch_size:int=64,
@@ -94,7 +107,7 @@ def main(data_dir:str='../data/sports',
                             estimate_params=estimate_params,
                             fused_attention=fused_attention).to(device)
     
-    train_loader, valid_loader, test_loader = load_data(data_dir=data_dir, batch_size=batch_size)
+    train_loader, valid_loader, test_loader = load_data(img_size=img_size, train_option=train_option, data_dir=data_dir, batch_size=batch_size)
     
     criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -136,33 +149,50 @@ def main(data_dir:str='../data/sports',
 
         epoch_loss = running_loss / len(train_loader)
         losses.append(epoch_loss)
-
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for data in valid_loader:
-                inputs, labels = data[0].to(device), data[1].to(device)
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
-                val_loss += loss.item()
+        
+        if train_option == 'total':
+            # 모델 저장
+            if epoch_loss < best_loss:
+                best_loss = epoch_loss
+                vit_save = True
+                torch.save(model.state_dict(), model_path)
                 
-        val_loss /= len(valid_loader)
-        val_losses.append(val_loss)
-        
-        # 모델 저장
-        if val_loss < best_loss:
-            best_loss = val_loss
-            vit_save = True
-            torch.save(model.state_dict(), model_path)
+            epoch_duration = time.time() - start_time
+            training_time += epoch_duration
+            
+            text = f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
+            
+            if vit_save:
+                text += f' - model saved!'
+                vit_save = False    
+            
+        elif train_option == 'holdout':
+            model.eval()
+            val_loss = 0.0
+            with torch.no_grad():
+                for data in valid_loader:
+                    inputs, labels = data[0].to(device), data[1].to(device)
+                    outputs = model(inputs)
+                    loss = criterion(outputs, labels)
+                    val_loss += loss.item()
+                    
+            val_loss /= len(valid_loader)
+            val_losses.append(val_loss)
+            
+            # 모델 저장
+            if val_loss < best_loss:
+                best_loss = val_loss
+                vit_save = True
+                torch.save(model.state_dict(), model_path)
 
-        epoch_duration = time.time() - start_time
-        training_time += epoch_duration
-        
-        text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
-        
-        if vit_save:
-            text += f' - model saved!'
-            vit_save = False
+            epoch_duration = time.time() - start_time
+            training_time += epoch_duration
+            
+            text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
+            
+            if vit_save:
+                text += f' - model saved!'
+                vit_save = False
 
         click.echo(text)
             

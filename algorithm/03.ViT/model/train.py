@@ -4,24 +4,22 @@ import torch.optim as optim
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from torchvision.transforms.autoaugment import AutoAugmentPolicy
-from torch.optim.lr_scheduler import _LRScheduler
-from torch.cuda.amp import autocast, GradScaler
-import math
+
 import time       
 from datetime import datetime
 from tqdm import tqdm
-from sklearn.metrics import confusion_matrix
-import pandas as pd
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+
 import vit_better as vit_custom
 import click
 
-def load_data(data_dir:str,
+def load_data(img_size:int,
+              data_dir:str,
               batch_size:int):
+        
     # Transforms 정의하기
     train_transform = transforms.Compose([
-        transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
+        transforms.RandomResizedCrop(img_size, scale=(0.8,1)),
+        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         transforms.RandomErasing(p=0.9, scale=(0.02, 0.33)),
@@ -33,9 +31,9 @@ def load_data(data_dir:str,
     ])
 
     # dataset load
-    train_data = ImageFolder(data_dir, transform=train_transform)
-    valid_data = ImageFolder(data_dir, transform=test_transform)
-    test_data = ImageFolder(data_dir, transform=test_transform)
+    train_data = ImageFolder(data_dir+'/train', transform=train_transform)
+    valid_data = ImageFolder(data_dir+'/valid', transform=test_transform)
+    test_data = ImageFolder(data_dir+'/test', transform=test_transform)
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
@@ -96,7 +94,7 @@ def main(data_dir:str='../data/sports',
                             estimate_params=estimate_params,
                             fused_attention=fused_attention).to(device)
     
-    train_loader, valid_loader, test_loader = load_data(data_dir=data_dir, batch_size=batch_size)
+    train_loader, valid_loader, test_loader = load_data(img_size=img_size, data_dir=data_dir, batch_size=batch_size)
     
     criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
