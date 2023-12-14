@@ -1,63 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
-from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from torch.optim.lr_scheduler import _LRScheduler
-from torch.cuda.amp import autocast, GradScaler
-import math
-import time       
-from tqdm import tqdm
-from sklearn.metrics import confusion_matrix
-import pandas as pd
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
-
-img_size = 224
-patch_size = 16
-num_classes = 100
-dropout = 0.1
-
-batch_size = 512
-num_workers = 64
-
-label_smoothing = 0.1
-learning_rate = 1e-3
-epochs = 100 
-
-unique_idx = '3'
-
-device = f'cuda:{unique_idx}'
-model_path = f'sports2_{unique_idx}.pth'  # 모델 저장 경로
-
-# 데이터셋 경로 설정
-data_dir = './data/sports'  # Tiny ImageNet 데이터셋이 저장된 경로
-
-# Transforms 정의하기
-train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.BILINEAR),
-    transforms.RandomHorizontalFlip(),
-    # transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    transforms.RandomErasing(p=0.9, scale=(0.02, 0.33)),
-])
-
-test_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-
-# dataset load
-train_data = ImageFolder('./data/sports/train', transform=train_transform)
-valid_data = ImageFolder('./data/sports/valid', transform=test_transform)
-test_data = ImageFolder('./data/sports/test', transform=test_transform)
-
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
 class PatchEmbedding(nn.Module):
     """
@@ -215,7 +159,7 @@ class TransformerEncoderLayer(nn.Module):
     mlp_ratio (float): 첫 번째 선형 레이어의 출력 차원을 결정하는 비율.
     dropout (float): 드롭아웃 비율.
     """
-    def __init__(self, embed_dim:int, num_heads:int, mlp_ratio:float=4.0, dropout:float=0.1, estimate_params:bool=False):
+    def __init__(self, embed_dim:int, num_heads:int, mlp_ratio:float=4.0, dropout:float=0.1, estimate_params:bool=False, fused_attention:bool=True):
         super().__init__()
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
@@ -227,7 +171,7 @@ class TransformerEncoderLayer(nn.Module):
         self.drop_path = nn.Identity()
         self.estimate_params = estimate_params
         if estimate_params:
-            self.attn = MHA(embed_dim, num_heads, dropout)
+            self.attn = MHA(embed_dim, num_heads, dropout, fused_attention=fused_attention)
         else :
             self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout) # [attention_output, attention weights]        
 
@@ -278,7 +222,7 @@ class VisionTransformer(nn.Module):
     def __init__(self, img_size:int=32, patch_size:int=4, in_channels:int=3, 
                  num_classes:int=100, embed_dim:int=768, num_heads:int=12, 
                  num_layers:int=12, mlp_ratio:float=4., dropout:float=0.1,
-                 estimate_params:bool=False):
+                 estimate_params:bool=False, fused_attention:bool=True):
         super().__init__()
 
         self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, embed_dim)
@@ -286,7 +230,7 @@ class VisionTransformer(nn.Module):
         self.pos_embed = PositionalEmbedding(num_patches, embed_dim)
 
         self.transformer_encoders = nn.ModuleList([
-            TransformerEncoderLayer(embed_dim, num_heads, mlp_ratio, dropout,estimate_params) 
+            TransformerEncoderLayer(embed_dim, num_heads, mlp_ratio, dropout,estimate_params, fused_attention) 
             for _ in range(num_layers)
         ])
 
@@ -326,188 +270,3 @@ class VisionTransformer(nn.Module):
         cls_token_output = x[:, 0]  # 첫 번째 토큰 (cls_token) 추출
         x = self.head(cls_token_output)  # 최종 분류를 위한 선형 레이어
         return x
-
-# 모델 정의
-vit = VisionTransformer(img_size=img_size, 
-                        patch_size=patch_size, 
-                        num_classes=num_classes, 
-                        dropout=dropout,
-                        embed_dim=768,
-                        num_layers=12,
-                        num_heads=12,
-                        mlp_ratio=4.,
-                        estimate_params=True) # 파라미터 수를 측정하고 싶으면 True
-
-# # 모델 초기화
-# vit.apply(vit._init_weights)
-
-class WarmupCosineAnnealingLR(_LRScheduler):
-    def __init__(self, optimizer, warmup_steps, total_steps, t_max, last_epoch=-1):
-        self.warmup_steps = warmup_steps
-        self.total_steps = total_steps
-        self.t_max = t_max
-        self.t_cur = 0
-        super(WarmupCosineAnnealingLR, self).__init__(optimizer, last_epoch)
-
-    def get_lr(self):
-        if self.last_epoch < self.warmup_steps:  # during warmup
-            return [base_lr * self.last_epoch / self.warmup_steps for base_lr in self.base_lrs]
-        else:  # post warmup
-            self.T_cur = (self.last_epoch - self.warmup_steps) % self.t_max
-            cosine_decay = 0.5 * (1 + math.cos(math.pi * self.T_cur / self.t_max))
-            return [base_lr * cosine_decay for base_lr in self.base_lrs]
-            
-
-total_steps = len(train_loader) * epochs
-# warmup_steps = min(total_steps * 0.2, 10000)
-warmup_steps = int(total_steps*0.1)
-print(f"\nWarmUp Step is {int(warmup_steps)}(epoch:{int(warmup_steps//len(train_loader))}) of Total Step {total_steps}\n")
-
-criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-
-# # original Paper
-# optimizer = optim.Adam(vit.parameters(), lr=learning_rate, betas=[0.9,0.999], weight_decay=0.03)
-optimizer = optim.Adam(vit.parameters(), lr=learning_rate, betas=[0.9,0.999])
-# scheduler = WarmupCosineAnnealingLR(optimizer, warmup_steps, total_steps, t_max=total_steps//3)
-
-# Method for Small Dataset
-# optimizer = optim.Adam(vit.parameters(), lr=learning_rate)
-# scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*10, gamma=0.5)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=3, threshold_mode='rel', threshold=1e-2, min_lr=1e-5)
-
-
-class EarlyStopping:
-    def __init__(self, patience=5, min_delta=0):
-        self.patience = patience
-        self.min_delta = min_delta
-        self.counter = 0
-        self.best_loss = None
-        self.early_stop = False
-
-    def __call__(self, val_loss):
-        if self.best_loss == None:
-            self.best_loss = val_loss
-        elif val_loss > self.best_loss - self.min_delta:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_loss = val_loss
-            self.counter = 0
-
-training_time = 0
-# early_stopping = EarlyStopping(patience=30)
-losses = []
-val_losses = []
-lrs = []
-best_loss = float('inf')
-
-vit_save = False
-vit.to(device)
-
-# GradScaler 초기화
-scaler = GradScaler()
-
-for epoch in range(epochs):
-    vit.train()
-    start_time = time.time()
-    running_loss = 0.0
-    pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch + 1}")
-    
-    for i, data in pbar:
-        inputs, labels = data[0].to(device), data[1].to(device)
-        optimizer.zero_grad()
-
-        # AutoCast 적용
-        with autocast():
-            outputs = vit(inputs)
-            loss = criterion(outputs, labels)
-
-        # Scaled Backward & Optimizer Step
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-        # scheduler.step()
-        running_loss += loss.item()
-        lr = optimizer.param_groups[0]["lr"]
-        lrs.append(lr)
-    epoch_loss = running_loss / len(train_loader)
-    losses.append(epoch_loss)
-    scheduler.step(epoch_loss)
-    
-    cur_step = len(train_loader) * epoch
-    val_loss = -1
-    if cur_step > warmup_steps:    
-        vit.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for data in valid_loader:
-                inputs, labels = data[0].to(device), data[1].to(device)
-                outputs = vit(inputs)
-                loss = criterion(outputs, labels)
-                val_loss += loss.item()
-        val_loss /= len(test_loader)
-        val_losses.append(val_loss)
-        
-        # 모델 저장
-        if val_loss < best_loss:
-            best_loss = val_loss
-            vit_save = True
-            torch.save(vit.state_dict(), model_path)
-
-    epoch_duration = time.time() - start_time
-    training_time += epoch_duration
-    
-    text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
-    
-    if vit_save:
-        text += f' - model saved!'
-        print(text)
-        vit_save = False
-    # elif epoch % 5 == 4 :
-    #     print(text)
-    else : 
-        print(text)
-
-    # # Early Stopping 체크
-    # early_stopping(loss)
-    # if early_stopping.early_stop:
-    #     print("Early stopping")
-    #     break
-    
-    
-torch.save(vit.state_dict(), './last_sports.pth')
-
-# 예측 수행 및 레이블 저장
-all_preds = []
-all_labels = []
-with torch.no_grad():
-    for images, labels in test_loader:
-        images, labels = images.to(device), labels.to(device)
-        outputs = vit(images)
-        _, predicted = torch.max(outputs, 1)
-        all_preds.extend(predicted.cpu().numpy())
-        all_labels.extend(labels.cpu().numpy())
-
-# 혼동 행렬 생성
-cm = confusion_matrix(all_labels, all_preds)
-
-# 예측과 실제 레이블
-y_true = all_labels  # 실제 레이블
-y_pred = all_preds  # 모델에 의해 예측된 레이블
-
-# 전체 데이터셋에 대한 정확도
-accuracy = accuracy_score(y_true, y_pred)
-
-# 평균 정밀도, 리콜, F1-Score ('weighted')
-precision, recall, f1_score, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted')
-
-# 판다스 데이터프레임으로 결과 정리
-performance_metrics = pd.DataFrame({
-    'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score'],
-    'Value': [accuracy, precision, recall, f1_score]
-})
-
-# 데이터프레임 출력
-print(performance_metrics)

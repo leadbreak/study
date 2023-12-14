@@ -4,6 +4,7 @@ import torch.optim as optim
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torchvision.transforms.autoaugment import AutoAugmentPolicy
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.cuda.amp import autocast, GradScaler
 import math
@@ -19,24 +20,23 @@ patch_size = 16
 num_classes = 100
 dropout = 0.1
 
-batch_size = 512
-num_workers = 64
+batch_size = 256
 
 label_smoothing = 0.1
 learning_rate = 0.001
 epochs = 100 
 
-device = 'cuda:4'
-model_path = 'sports.pth'  # 모델 저장 경로
+device = 'cuda:3'
+model_path = 'sports1.pth'  # 모델 저장 경로
 
 # 데이터셋 경로 설정
 data_dir = './data/sports'  # Tiny ImageNet 데이터셋이 저장된 경로
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
-    transforms.RandomHorizontalFlip(),
-    # transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
+    # transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
+    # transforms.RandomHorizontalFlip(),
+    transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     transforms.RandomErasing(p=0.9, scale=(0.02, 0.33)),
@@ -285,7 +285,6 @@ class VisionTransformer(nn.Module):
             x = layer(x)  # 각 Transformer Encoder 레이어 적용
 
         x = self.norm(x)        # 정규화
-        # x = self.dropout(x)     # dropout 적용
         
         # cls_token의 출력을 사용하여 분류
         cls_token_output = x[:, 0]  # 첫 번째 토큰 (cls_token) 추출
@@ -301,8 +300,6 @@ vit = VisionTransformer(img_size=img_size,
                         num_heads=12,
                         estimate_params=True) # 파라미터 수를 측정하고 싶으면 True
 
-# # 모델 초기화
-# vit.apply(vit._init_weights)
 
 class WarmupCosineAnnealingLR(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, total_steps, t_max, last_epoch=-1):
@@ -329,11 +326,12 @@ criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
 # # original Paper
 # optimizer = optim.Adam(vit.parameters(), lr=learning_rate, betas=[0.9,0.999], weight_decay=0.03)
-# scheduler = WarmupCosineAnnealingLR(optimizer, warmup_steps, total_steps, t_max=total_steps//3)
+# scheduler = WarmupCosineAnnealingLR(optimizer, warmup_steps, total_steps, t_max=total_steps)
 
 # Method for Small Dataset
 optimizer = optim.Adam(vit.parameters(), lr=learning_rate)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*10, gamma=0.5)
+
 
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0):
@@ -434,7 +432,7 @@ for epoch in range(epochs):
     #     print("Early stopping")
     #     break
     
-torch.save(vit.state_dict(), './last_sports.pth')
+torch.save(vit.state_dict(), './last_sports1.pth')
 
 # 예측 수행 및 레이블 저장
 all_preds = []

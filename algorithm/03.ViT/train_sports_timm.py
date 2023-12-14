@@ -1,6 +1,7 @@
 import time
 import torch
 import torchvision.transforms as transforms
+from torchvision.transforms.autoaugment import AutoAugmentPolicy
 import torch.nn as nn
 import torch.optim as optim
 import timm
@@ -15,7 +16,6 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 img_size = 224
 num_classes = 100
 batch_size = 512
-num_workers = 8
 
 model_name = 'vit_base_patch16_224'
 pretrained = False
@@ -33,9 +33,7 @@ data_dir = './data/sports'  # Tiny ImageNet 데이터셋이 저장된 경로
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
-    transforms.RandomHorizontalFlip(),
-    # transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
+    transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     transforms.RandomErasing(p=0.9, scale=(0.02, 0.33)),

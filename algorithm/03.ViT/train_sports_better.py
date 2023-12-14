@@ -4,6 +4,7 @@ import torch.optim as optim
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torchvision.transforms.autoaugment import AutoAugmentPolicy
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.cuda.amp import autocast, GradScaler
 import math
@@ -20,7 +21,6 @@ num_classes = 100
 dropout = 0.1
 
 batch_size = 512
-num_workers = 64
 
 label_smoothing = 0.1
 learning_rate = 1e-3
@@ -34,9 +34,7 @@ data_dir = './data/sports'  # Tiny ImageNet 데이터셋이 저장된 경로
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(img_size, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
-    transforms.RandomHorizontalFlip(),
-    # transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
+    transforms.AutoAugment(AutoAugmentPolicy.IMAGENET),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     transforms.RandomErasing(p=0.9, scale=(0.02, 0.33)),
