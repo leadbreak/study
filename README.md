@@ -13,4 +13,5 @@ study for python, ML, DL, Data Science, etc
 | 2023.11.09 | ReLU, Swish, GELU | [code](/note/activation.ipynb) |
 | 2023.11.11-23 | Transformer Basic | [blog](https://brunch.co.kr/@bfcced03a6054df/10) [code](/algorithm/01.transformer_introduce.ipynb)|
 | 2023.11.26-12.02 | Transformer Intermediate | [blog](https://brunch.co.kr/@bfcced03a6054df/11) [code1](/algorithm/02.transformer_intermediate/02.transformer_intermediate.ipynb) [code2](/algorithm/02.transformer_intermediate/02.translator_train.py)|
-| 2023.12.02- | ViT Basic | [code](/algorithm/03.ViT/) |
+| 2023.12.02-17 | Vision Transformer | [blog](https://brunch.co.kr/@bfcced03a6054df/12) [code](/algorithm/03.ViT/) |
+| 2023.12.15- | Swin Transformer | [code](/algorithm/04.SwinT/) |
