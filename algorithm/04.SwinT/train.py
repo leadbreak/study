@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
-import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+
+from sklearn.metrics import confusion_matrix
+import pandas as pd
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 class embeddings(nn.Module):
     def __init__(self, 
@@ -382,17 +385,16 @@ class StageLayer(nn.Module):
 class SwinTransformer(nn.Module):
     """ Swin Transformer 전체 모델
     """
-    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
+    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=100,
                  embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
+                 window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=True,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
+                 norm_layer=nn.LayerNorm, patch_norm=True,
                  **kwargs):
         super().__init__()
 
         self.num_classes = num_classes
         self.embed_dim = embed_dim
-        self.ape = ape
         self.patch_norm = patch_norm
 
         # 패치 임베딩 레이어
@@ -423,6 +425,23 @@ class SwinTransformer(nn.Module):
         self.layernorm = norm_layer(final_dim)  # 최종 출력 정규화 레이어
         self.pooler = nn.AdaptiveAvgPool1d(1) # Global Average Pooling
         self.classifier = nn.Linear(final_dim, num_classes) if num_classes > 0 else nn.Identity()
+        
+        self.init_weights()
+        
+    # 파라미터 초기화
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.trunc_normal_(m.weight, std=.02)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.zeros_(m.bias)
+                nn.init.ones_(m.weight)
+            elif isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x):
         x = self.embeddings(x)        
@@ -440,7 +459,7 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as T
 
 data_dir = '../data/sports/'
-batch_size = 1024
+batch_size = 512
 
 # T 정의하기
 train_transform = T.Compose([
@@ -456,6 +475,7 @@ test_transform = T.Compose([
     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
+model_path = '../models/swin/model.pth'
 
 train_path = data_dir+'/train'
 valid_path = data_dir+'/valid'
@@ -474,17 +494,22 @@ import torch.optim as optim
 from torch.cuda.amp import autocast, GradScaler
 import time
 from tqdm import tqdm
+import transformers
 
 label_smoothing = 0.1
 learning_rate = 1e-3
-epochs = 1000
+epochs = 100
 device = 'cuda:2'
 
 model.to(device)
 
 criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*5, gamma=0.8)
+optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.001)
+
+# warmup_steps = int(len(train_loader)*epochs*0.2)
+# train_steps = len(train_loader)*epochs - warmup_steps
+# scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=train_steps)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*4, gamma=0.8)
 
 training_time = 0
 losses = []
@@ -539,7 +564,7 @@ for epoch in range(epochs):
     if val_loss < best_loss:
         best_loss = val_loss
         vit_save = True
-        # torch.save(model.state_dict(), model_path)
+        torch.save(model.state_dict(), model_path)
 
     epoch_duration = time.time() - start_time
     training_time += epoch_duration
@@ -567,3 +592,25 @@ with torch.no_grad():
         all_preds.extend(predicted.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
     
+
+# 혼동 행렬 생성
+cm = confusion_matrix(all_labels, all_preds)
+
+# 예측과 실제 레이블
+y_true = all_labels  # 실제 레이블
+y_pred = all_preds  # 모델에 의해 예측된 레이블
+
+# 전체 데이터셋에 대한 정확도
+accuracy = accuracy_score(y_true, y_pred)
+
+# 평균 정밀도, 리콜, F1-Score ('weighted')
+precision, recall, f1_score, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted')
+
+# 판다스 데이터프레임으로 결과 정리
+performance_metrics = pd.DataFrame({
+    'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score'],
+    'Value': [accuracy, precision, recall, f1_score]
+})
+
+# 데이터프레임 출력
+print(performance_metrics)
