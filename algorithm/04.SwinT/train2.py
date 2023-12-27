@@ -1,7 +1,13 @@
 import torch
 import torch.nn as nn
-import torch.nn.init as init
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from torch.nn.utils import clip_grad_norm_
+
+import torch.optim as optim
+from torch.cuda.amp import autocast, GradScaler
+import time
+from tqdm import tqdm
+import transformers
 
 from sklearn.metrics import confusion_matrix
 import pandas as pd
@@ -491,12 +497,6 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-import torch.optim as optim
-from torch.cuda.amp import autocast, GradScaler
-import time
-from tqdm import tqdm
-import transformers
-
 label_smoothing = 0.1
 learning_rate = 1e-3
 epochs = 1000
@@ -508,10 +508,8 @@ criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)
 
 warmup_steps = int(len(train_loader)*epochs*0.1)
-train_steps = len(train_loader)*epochs
-scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
-                                                         num_warmup_steps=warmup_steps, 
-                                                         num_training_steps=train_steps)
+train_steps = len(train_loader)*epochs - warmup_steps
+scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=train_steps)
 # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*4, gamma=0.8)
 
 training_time = 0
@@ -538,14 +536,20 @@ for epoch in range(epochs):
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             
-            # Scaled Backward & Optimizer Step
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
-            
-            lr = optimizer.param_groups[0]["lr"]
-            lrs.append(lr)
+        # 스케일링된 그라디언트 계산
+        scaler.scale(loss).backward()
+
+        # 그라디언트 클리핑 전에 스케일링 제거
+        scaler.unscale_(optimizer)
+        clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        # 옵티마이저 스텝 및 스케일러 업데이트
+        scaler.step(optimizer)
+        scaler.update()
+        scheduler.step()
+        
+        lr = optimizer.param_groups[0]["lr"]
+        lrs.append(lr)
         running_loss += loss.item()
 
     epoch_loss = running_loss / len(train_loader)

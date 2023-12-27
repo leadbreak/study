@@ -23,7 +23,7 @@ device_gpu = 'cuda:3'
 
 label_smoothing = 0.1
 learning_rate = 0.001
-epochs = 100
+epochs = 1000
 
 model_path = '../models/swin/test_model.pth'  # 모델 저장 경로
 
@@ -65,7 +65,12 @@ optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.001
 step_size = len(trainloader)*5
 # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.5)
 # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, min_lr=1e-5)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(trainloader)*4, gamma=0.8)
+# scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(trainloader)*4, gamma=0.8)
+
+import transformers
+warmup_steps = int(len(trainloader)*epochs*0.1)
+train_steps = len(trainloader)*epochs - warmup_steps
+scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=train_steps)
 
 from tqdm import tqdm
 

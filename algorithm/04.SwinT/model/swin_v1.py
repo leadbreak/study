@@ -1,11 +1,7 @@
 import torch
 import torch.nn as nn
-import torch.nn.init as init
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
-
-from sklearn.metrics import confusion_matrix
-import pandas as pd
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+import torch
 
 class embeddings(nn.Module):
     def __init__(self, 
@@ -42,8 +38,6 @@ class embeddings(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
         return x
-    
-import torch
 
 # Cyclic shift 함수 정의
 def cyclic_shift(img, shift_size):
@@ -149,6 +143,7 @@ class WindowAttention(nn.Module):
         x = self.proj(x)  # 최종 선형 변환
         x = self.proj_drop(x)  # 출력 드롭아웃 적용
         return x
+    
 class Mlp(nn.Module):
     def __init__(self, 
                  in_features, 
@@ -433,16 +428,16 @@ class SwinTransformer(nn.Module):
     # def _initialize_weights(self):
     #     for m in self.modules():
     #         if isinstance(m, nn.Linear):
-    #             init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+    #             nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
     #             if m.bias is not None:
-    #                 init.zeros_(m.bias)
+    #                 nn.init.zeros_(m.bias)
     #         elif isinstance(m, nn.LayerNorm):
-    #             init.ones_(m.weight)
-    #             init.zeros_(m.bias)                
+    #             nn.init.ones_(m.weight)
+    #             nn.init.zeros_(m.bias)                
     #         elif isinstance(m, nn.Conv2d):
-    #             init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    #             nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
     #             if m.bias is not None:
-    #                 init.zeros_(m.bias)
+    #                 nn.init.zeros_(m.bias)
                     
     def forward(self, x):
         x = self.embeddings(x)        
@@ -452,168 +447,3 @@ class SwinTransformer(nn.Module):
         x = self.pooler(x.transpose(1,2)).flatten(1)        
         x = self.classifier(x)
         return x
-    
-model = SwinTransformer()
-
-from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader
-import torchvision.transforms as T
-
-data_dir = '../data/sports/'
-batch_size = 512
-
-# T 정의하기
-train_transform = T.Compose([
-    T.RandomResizedCrop(224, scale=(0.8,1), interpolation=T.InterpolationMode.LANCZOS),
-    T.RandomHorizontalFlip(),
-    T.ToTensor(),
-    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    T.RandomErasing(p=0.9, scale=(0.02, 0.33)),
-])
-
-test_transform = T.Compose([
-    T.ToTensor(),
-    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-
-model_path = '../models/swin/model.pth'
-
-train_path = data_dir+'/train'
-valid_path = data_dir+'/valid'
-test_path = data_dir+'/test'
-
-# dataset load
-train_data = ImageFolder(train_path, transform=train_transform)
-valid_data = ImageFolder(valid_path, transform=test_transform)
-test_data = ImageFolder(test_path, transform=test_transform)
-
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
-
-import torch.optim as optim
-from torch.cuda.amp import autocast, GradScaler
-import time
-from tqdm import tqdm
-import transformers
-
-label_smoothing = 0.1
-learning_rate = 1e-3
-epochs = 1000
-device = 'cuda:2'
-
-model.to(device)
-
-criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)
-
-warmup_steps = int(len(train_loader)*epochs*0.1)
-train_steps = len(train_loader)*epochs
-scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
-                                                         num_warmup_steps=warmup_steps, 
-                                                         num_training_steps=train_steps)
-# scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*4, gamma=0.8)
-
-training_time = 0
-losses = []
-val_losses = []
-lrs = []
-best_loss = float('inf')
-
-# GradScaler 초기화
-scaler = GradScaler()
-
-for epoch in range(epochs):
-    model.train()
-    start_time = time.time()
-    running_loss = 0.0
-    pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch + 1}")
-    
-    for i, data in pbar:
-        inputs, labels = data[0].to(device), data[1].to(device)
-        optimizer.zero_grad()
-
-        # AutoCast 적용
-        with autocast():
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            
-            # Scaled Backward & Optimizer Step
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
-            
-            lr = optimizer.param_groups[0]["lr"]
-            lrs.append(lr)
-        running_loss += loss.item()
-
-    epoch_loss = running_loss / len(train_loader)
-    losses.append(epoch_loss)
-
-    model.eval()
-    val_loss = 0.0
-    with torch.no_grad():
-        for data in valid_loader:
-            inputs, labels = data[0].to(device), data[1].to(device)
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            val_loss += loss.item()
-            
-    val_loss /= len(valid_loader)
-    val_losses.append(val_loss)
-    
-    # 모델 저장
-    if val_loss < best_loss:
-        best_loss = val_loss
-        vit_save = True
-        torch.save(model.state_dict(), model_path)
-
-    epoch_duration = time.time() - start_time
-    training_time += epoch_duration
-    
-    text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
-    
-    if vit_save:
-        text += f' - model saved!'
-        vit_save = False
-
-    print(text)
-        
-text = f"Epoch 당 평균 소요시간 : {training_time / epochs:.2f}초"
-  
-print(text)
-
-# 예측 수행 및 레이블 저장
-all_preds = []
-all_labels = []
-with torch.no_grad():
-    for images, labels in test_loader:
-        images, labels = images.to(device), labels.to(device)
-        outputs = model(images)
-        _, predicted = torch.max(outputs, 1)
-        all_preds.extend(predicted.cpu().numpy())
-        all_labels.extend(labels.cpu().numpy())
-    
-
-# 혼동 행렬 생성
-cm = confusion_matrix(all_labels, all_preds)
-
-# 예측과 실제 레이블
-y_true = all_labels  # 실제 레이블
-y_pred = all_preds  # 모델에 의해 예측된 레이블
-
-# 전체 데이터셋에 대한 정확도
-accuracy = accuracy_score(y_true, y_pred)
-
-# 평균 정밀도, 리콜, F1-Score ('weighted')
-precision, recall, f1_score, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted')
-
-# 판다스 데이터프레임으로 결과 정리
-performance_metrics = pd.DataFrame({
-    'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score'],
-    'Value': [accuracy, precision, recall, f1_score]
-})
-
-# 데이터프레임 출력
-print(performance_metrics)
