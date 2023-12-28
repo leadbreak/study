@@ -38,6 +38,8 @@ class embeddings(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
         return x
+    
+import torch
 
 # Cyclic shift 함수 정의
 def cyclic_shift(img, shift_size):
@@ -143,7 +145,6 @@ class WindowAttention(nn.Module):
         x = self.proj(x)  # 최종 선형 변환
         x = self.proj_drop(x)  # 출력 드롭아웃 적용
         return x
-    
 class Mlp(nn.Module):
     def __init__(self, 
                  in_features, 
@@ -384,7 +385,7 @@ class SwinTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=100,
                  embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24],
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  **kwargs):
         super().__init__()
@@ -428,16 +429,16 @@ class SwinTransformer(nn.Module):
     # def _initialize_weights(self):
     #     for m in self.modules():
     #         if isinstance(m, nn.Linear):
-    #             nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+    #             init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
     #             if m.bias is not None:
-    #                 nn.init.zeros_(m.bias)
+    #                 init.zeros_(m.bias)
     #         elif isinstance(m, nn.LayerNorm):
-    #             nn.init.ones_(m.weight)
-    #             nn.init.zeros_(m.bias)                
+    #             init.ones_(m.weight)
+    #             init.zeros_(m.bias)                
     #         elif isinstance(m, nn.Conv2d):
-    #             nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    #             init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
     #             if m.bias is not None:
-    #                 nn.init.zeros_(m.bias)
+    #                 init.zeros_(m.bias)
                     
     def forward(self, x):
         x = self.embeddings(x)        

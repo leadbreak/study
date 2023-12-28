@@ -1,7 +1,17 @@
 import torch
 import torch.nn as nn
-import torch.nn.init as init
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+
+from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader
+import torchvision.transforms as T
+from timm.data import Mixup
+
+import torch.optim as optim
+from torch.cuda.amp import autocast, GradScaler
+import time
+from tqdm import tqdm
+import transformers
 
 from sklearn.metrics import confusion_matrix
 import pandas as pd
@@ -42,8 +52,6 @@ class embeddings(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
         return x
-    
-import torch
 
 # Cyclic shift 함수 정의
 def cyclic_shift(img, shift_size):
@@ -389,7 +397,7 @@ class SwinTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=100,
                  embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24],
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  **kwargs):
         super().__init__()
@@ -455,10 +463,6 @@ class SwinTransformer(nn.Module):
     
 model = SwinTransformer()
 
-from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader
-import torchvision.transforms as T
-
 data_dir = '../data/sports/'
 batch_size = 512
 
@@ -477,6 +481,7 @@ test_transform = T.Compose([
 ])
 
 model_path = '../models/swin/model.pth'
+last_model_path = '../models/swin/model_last.pth'
 
 train_path = data_dir+'/train'
 valid_path = data_dir+'/valid'
@@ -491,15 +496,17 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-import torch.optim as optim
-from torch.cuda.amp import autocast, GradScaler
-import time
-from tqdm import tqdm
-import transformers
+mixup_fn = Mixup(mixup_alpha=1.0, 
+                 cutmix_alpha=1.0, 
+                 prob=1.0, 
+                 switch_prob=0.5, 
+                 mode='batch',
+                 label_smoothing=0.1,
+                 num_classes=100)
 
-label_smoothing = 0.1
+label_smoothing = 0.0
 learning_rate = 1e-3
-epochs = 1000
+epochs = 100
 device = 'cuda:2'
 
 model.to(device)
@@ -511,7 +518,12 @@ warmup_steps = int(len(train_loader)*epochs*0.1)
 train_steps = len(train_loader)*epochs
 scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
                                                          num_warmup_steps=warmup_steps, 
-                                                         num_training_steps=train_steps)
+                                                         num_training_steps=train_steps,
+                                                         num_cycles=0.5)
+# scheduler = transformers.get_cosine_with_hard_restarts_schedule_with_warmup(optimizer,
+#                                                                             num_warmup_steps=warmup_steps, 
+#                                                                             num_training_steps=train_steps,
+#                                                                             num_cycles=2)
 # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*4, gamma=0.8)
 
 training_time = 0
@@ -522,6 +534,7 @@ best_loss = float('inf')
 
 # GradScaler 초기화
 scaler = GradScaler()
+vit_save = False
 
 for epoch in range(epochs):
     model.train()
@@ -531,6 +544,7 @@ for epoch in range(epochs):
     
     for i, data in pbar:
         inputs, labels = data[0].to(device), data[1].to(device)
+        inputs, labels = mixup_fn(inputs, labels)
         optimizer.zero_grad()
 
         # AutoCast 적용
@@ -564,10 +578,11 @@ for epoch in range(epochs):
     val_losses.append(val_loss)
     
     # 모델 저장
-    if val_loss < best_loss:
-        best_loss = val_loss
-        vit_save = True
-        torch.save(model.state_dict(), model_path)
+    if epoch > (epochs // 2):
+        if val_loss < best_loss:
+            best_loss = val_loss
+            vit_save = True
+            torch.save(model.state_dict(), model_path)
 
     epoch_duration = time.time() - start_time
     training_time += epoch_duration
@@ -581,6 +596,7 @@ for epoch in range(epochs):
     print(text)
         
 text = f"Epoch 당 평균 소요시간 : {training_time / epochs:.2f}초"
+torch.save(model.state_dict(), last_model_path)
   
 print(text)
 

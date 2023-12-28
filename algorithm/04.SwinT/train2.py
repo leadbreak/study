@@ -1,10 +1,15 @@
 import torch
 import torch.nn as nn
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
-from torch.nn.utils import clip_grad_norm_
+from timm.data import Mixup
+
+from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader
+import torchvision.transforms as T
 
 import torch.optim as optim
 from torch.cuda.amp import autocast, GradScaler
+from torch.nn.utils import clip_grad_norm_
 import time
 from tqdm import tqdm
 import transformers
@@ -48,8 +53,6 @@ class embeddings(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
         return x
-    
-import torch
 
 # Cyclic shift 함수 정의
 def cyclic_shift(img, shift_size):
@@ -155,6 +158,7 @@ class WindowAttention(nn.Module):
         x = self.proj(x)  # 최종 선형 변환
         x = self.proj_drop(x)  # 출력 드롭아웃 적용
         return x
+    
 class Mlp(nn.Module):
     def __init__(self, 
                  in_features, 
@@ -395,7 +399,7 @@ class SwinTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=100,
                  embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24],
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  **kwargs):
         super().__init__()
@@ -432,23 +436,6 @@ class SwinTransformer(nn.Module):
         self.layernorm = norm_layer(final_dim)  # 최종 출력 정규화 레이어
         self.pooler = nn.AdaptiveAvgPool1d(1) # Global Average Pooling
         self.classifier = nn.Linear(final_dim, num_classes) if num_classes > 0 else nn.Identity()
-        
-    #     # 초기화 수행
-    #     self._initialize_weights()
-
-    # def _initialize_weights(self):
-    #     for m in self.modules():
-    #         if isinstance(m, nn.Linear):
-    #             init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
-    #             if m.bias is not None:
-    #                 init.zeros_(m.bias)
-    #         elif isinstance(m, nn.LayerNorm):
-    #             init.ones_(m.weight)
-    #             init.zeros_(m.bias)                
-    #         elif isinstance(m, nn.Conv2d):
-    #             init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-    #             if m.bias is not None:
-    #                 init.zeros_(m.bias)
                     
     def forward(self, x):
         x = self.embeddings(x)        
@@ -460,10 +447,6 @@ class SwinTransformer(nn.Module):
         return x
     
 model = SwinTransformer()
-
-from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader
-import torchvision.transforms as T
 
 data_dir = '../data/sports/'
 batch_size = 512
@@ -482,7 +465,8 @@ test_transform = T.Compose([
     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
-model_path = '../models/swin/model.pth'
+model_path = '../models/swin/model2.pth'
+last_model_path = '../models/swin/model2_last.pth'
 
 train_path = data_dir+'/train'
 valid_path = data_dir+'/valid'
@@ -497,10 +481,18 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-label_smoothing = 0.1
+mixup_fn = Mixup(mixup_alpha=1.0, 
+                 cutmix_alpha=1.0, 
+                 prob=1.0, 
+                 switch_prob=0.5, 
+                 mode='batch',
+                 label_smoothing=0.1,
+                 num_classes=100)
+
+label_smoothing = 0.0
 learning_rate = 1e-3
-epochs = 1000
-device = 'cuda:2'
+epochs = 100
+device = 'cuda:3'
 
 model.to(device)
 
@@ -508,8 +500,16 @@ criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)
 
 warmup_steps = int(len(train_loader)*epochs*0.1)
-train_steps = len(train_loader)*epochs - warmup_steps
-scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=train_steps)
+train_steps = len(train_loader)*epochs
+scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
+                                                         num_warmup_steps=warmup_steps, 
+                                                         num_training_steps=train_steps,
+                                                         num_cycles=0.5)
+
+# scheduler = transformers.get_cosine_with_hard_restarts_schedule_with_warmup(optimizer,
+#                                                                             num_warmup_steps=warmup_steps, 
+#                                                                             num_training_steps=train_steps,
+#                                                                             num_cycles=2)
 # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=len(train_loader)*4, gamma=0.8)
 
 training_time = 0
@@ -520,6 +520,7 @@ best_loss = float('inf')
 
 # GradScaler 초기화
 scaler = GradScaler()
+vit_save = False
 
 for epoch in range(epochs):
     model.train()
@@ -529,6 +530,7 @@ for epoch in range(epochs):
     
     for i, data in pbar:
         inputs, labels = data[0].to(device), data[1].to(device)
+        inputs, labels = mixup_fn(inputs, labels)
         optimizer.zero_grad()
 
         # AutoCast 적용
@@ -568,10 +570,11 @@ for epoch in range(epochs):
     val_losses.append(val_loss)
     
     # 모델 저장
-    if val_loss < best_loss:
-        best_loss = val_loss
-        vit_save = True
-        torch.save(model.state_dict(), model_path)
+    if epoch > (epochs // 2):
+        if val_loss < best_loss:
+            best_loss = val_loss
+            vit_save = True
+            torch.save(model.state_dict(), model_path)
 
     epoch_duration = time.time() - start_time
     training_time += epoch_duration
@@ -585,7 +588,8 @@ for epoch in range(epochs):
     print(text)
         
 text = f"Epoch 당 평균 소요시간 : {training_time / epochs:.2f}초"
-  
+torch.save(model.state_dict(), last_model_path)
+
 print(text)
 
 # 예측 수행 및 레이블 저장
