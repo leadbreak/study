@@ -69,7 +69,7 @@ step_size = len(trainloader)*5
 
 import transformers
 warmup_steps = int(len(trainloader)*epochs*0.1)
-train_steps = len(trainloader)*epochs - warmup_steps
+train_steps = len(trainloader)*epochs
 scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=train_steps)
 
 from tqdm import tqdm

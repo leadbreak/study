@@ -15,6 +15,7 @@ import swin_v1 as swin
 from timm.data import Mixup
 from torch.nn.utils import clip_grad_norm_
 import transformers
+import timm
 
 import click
 
@@ -56,6 +57,7 @@ def load_data(img_size:int,
     return train_loader, valid_loader, test_loader
 
 @click.command()
+@click.option('--define_model', default='self')
 @click.option('--train_option', default='holdout')
 @click.option('--data_dir', default='../../data/sports')
 @click.option('--model_path', default='../../models/swin/model.pth')
@@ -77,7 +79,8 @@ def load_data(img_size:int,
 @click.option('--mixup_alpha', default=0.7)
 @click.option('--cutmix_alpha', default=0.7)
 @click.option('--mixup_prob', default=1.0)
-def main(data_dir:str='../data/sports',
+def main(define_model:str='self',
+         data_dir:str='../data/sports',
          train_option:str='total',
          model_path:str=None,
          epochs:int=10,
@@ -101,43 +104,54 @@ def main(data_dir:str='../data/sports',
          mixup_prob:float=0.7,
          ):
     
-    args = {}
-    if model_type == 'small':
-        args['embed_dim'] = 96
-        args['heads'] = [3,6,12,24]
-        args['depths'] = [2,2,18,2]
-        args['drop_path_rate'] = 0.3
-    elif model_type == 'base':
-        args['embed_dim'] = 128
-        args['heads'] = [4,8,16,32]
-        args['depths'] = [2,2,18,2]
-        args['drop_path_rate'] = 0.5
-    elif model_type == 'large':
-        args['embed_dim'] = 96
-        args['heads'] = [6,12,24,68]
-        args['depths'] = [2,2,18,2]
-        args['drop_path_rate'] = 0.5
-    else:
-        args['embed_dim'] = 96
-        args['heads'] = [3,6,12,24]
-        args['depths'] = [2,2,6,2]
-        args['drop_path_rate'] = 0.2
+    if define_model == 'timm':
+        model_name = f'swin_{model_type}_patch{patch_size}_window{window_size}_{img_size}.ms_in22k'
+        
+    elif define_model == 'self':
+        args = {}
+        if model_type == 'small':
+            args['embed_dim'] = 96
+            args['heads'] = [3,6,12,24]
+            args['depths'] = [2,2,18,2]
+            args['drop_path_rate'] = 0.3
+        elif model_type == 'base':
+            args['embed_dim'] = 128
+            args['heads'] = [4,8,16,32]
+            args['depths'] = [2,2,18,2]
+            args['drop_path_rate'] = 0.5
+        elif model_type == 'large':
+            args['embed_dim'] = 96
+            args['heads'] = [6,12,24,68]
+            args['depths'] = [2,2,18,2]
+            args['drop_path_rate'] = 0.5
+        else:
+            args['embed_dim'] = 96
+            args['heads'] = [3,6,12,24]
+            args['depths'] = [2,2,6,2]
+            args['drop_path_rate'] = 0.2
         
     
     # 파일명이 지정되지 않으면 시간으로
     if model_path is None:
         current_time = datetime.now()
         model_path = current_time.strftime("%y%m%d_%H%M") + ".pth"
-    
-    model = swin.SwinTransformer(img_size=img_size, 
-                            patch_size=patch_size,
-                            window_size=window_size,
-                            in_chans=in_chans, 
-                            num_classes=num_classes, 
-                            mlp_ratio=mlp_ratio,
-                            drop_rate=drop_rate,
-                            attn_drop_rate=attn_drop_rate,
-                            **args).to(device)
+        
+    if define_model == 'timm':
+        model = timm.create_model(model_name=model_name,
+                                  pretrained=False,
+                                  num_classes=num_classes)
+    elif define_model == 'self':
+        model = swin.SwinTransformer(img_size=img_size, 
+                                    patch_size=patch_size,
+                                    window_size=window_size,
+                                    in_chans=in_chans, 
+                                    num_classes=num_classes, 
+                                    mlp_ratio=mlp_ratio,
+                                    drop_rate=drop_rate,
+                                    attn_drop_rate=attn_drop_rate,
+                                    **args)
+        
+    model.to(device)
     
     train_loader, valid_loader, test_loader = load_data(img_size=img_size, train_option=train_option, data_dir=data_dir, batch_size=batch_size)
     
