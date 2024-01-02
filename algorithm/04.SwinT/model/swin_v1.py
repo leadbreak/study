@@ -38,8 +38,6 @@ class embeddings(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
         return x
-    
-import torch
 
 # Cyclic shift 함수 정의
 def cyclic_shift(img, shift_size):
