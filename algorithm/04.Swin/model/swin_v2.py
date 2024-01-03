@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
-import torch
+import torch.nn.functional as F
 
 class embeddings(nn.Module):
     def __init__(self, 
@@ -82,6 +82,7 @@ class WindowAttention(nn.Module):
         self.window_size = window_size  # 윈도우 크기
         self.num_heads = num_heads  # 어텐션 헤드 수
         head_dim = dim // num_heads  # 각 헤드의 차원
+        self.t_scale = nn.Parameter(torch.log(10*torch.ones((num_heads, 1, 1))), requires_grad=True)
         self.scale = qk_scale or head_dim ** -0.5  # 스케일링 인자
 
         # 상대적 위치 바이어스 테이블 초기화
@@ -118,9 +119,11 @@ class WindowAttention(nn.Module):
         B_, N, C = x.shape  # 입력 텐서의 형태
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)  # Q, K, V 분리
-
-        q = q * self.scale  # 스케일링 적용
-        attn = (q @ k.transpose(-2, -1))  # 어텐션 스코어 계산
+        
+        # cosine attention
+        attn = (F.normalize(q, dim=-1) & F.normalize(k, dim=-1).transpose(-2,-1))
+        t_scale = torch.clamp(self.t_scale, max=torch.log(torch.tensor(1. / 0.01))).exp()
+        attn = attn * t_scale
 
         # 상대적 위치 편향 적용
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
@@ -143,6 +146,7 @@ class WindowAttention(nn.Module):
         x = self.proj(x)  # 최종 선형 변환
         x = self.proj_drop(x)  # 출력 드롭아웃 적용
         return x
+    
 class Mlp(nn.Module):
     def __init__(self, 
                  in_features, 
@@ -263,7 +267,6 @@ class SwinTransformerBlock(nn.Module):
         assert L == H * W, "입력 특징의 크기가 올바르지 않음"
 
         shortcut = x
-        x = self.norm1(x)
         x = x.view(B, H, W, C)
 
         # 순환 이동 및 윈도우 어텐션
@@ -284,9 +287,9 @@ class SwinTransformerBlock(nn.Module):
             x = window_reverse(attn_windows, self.window_size, H, W)
         x = x.view(B, H * W, C)
 
-        # 잔차 연결 및 MLP
-        x = shortcut + self.drop_path(x)
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        # res-post-norm 적용 및 레이어 통과 후 잔차 연결
+        x = shortcut + self.norm1(self.drop_path(x))
+        x = x + self.norm2(self.drop_path(self.mlp(x)))
 
         return x
 
