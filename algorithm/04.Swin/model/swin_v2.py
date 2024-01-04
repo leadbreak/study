@@ -72,47 +72,84 @@ class WindowAttention(nn.Module):
         window_size (tuple[int]): 윈도우의 높이와 너비.
         num_heads (int): 어텐션 헤드의 수.
         qkv_bias (bool, optional): QKV 선형 변환에 바이어스 추가 여부. 기본값: True.
-        qk_scale (float | None, optional): Query-Key 스케일링 인자. 기본값: None(자동 계산).
         attn_drop (float, optional): 어텐션 가중치의 드롭아웃 비율. 기본값: 0.0.
         proj_drop (float, optional): 출력의 드롭아웃 비율. 기본값: 0.0.
+        pretrained_window_size (tuple[int]): stage2 pre-training 단계에서 학습된 사전 윈도우 사이즈
+        rpb_scale (bool, optional): Relative Positional Bias Table에 대한 스케일 여부
     """
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, attn_drop=0., proj_drop=0., pretrained_window_size=0, rpb_scale=True):
         super().__init__()
         self.dim = dim  # 입력 차원
         self.window_size = window_size  # 윈도우 크기
+        self.pretrained_window_size = pretrained_window_size # 사전학습된 윈도우 크기
+        self.rpb_scale = rpb_scale  # rpb table에 대한 스케일 여부
         self.num_heads = num_heads  # 어텐션 헤드 수
-        head_dim = dim // num_heads  # 각 헤드의 차원
+        
+        # V2: t to scale cosine score
         self.t_scale = nn.Parameter(torch.log(10*torch.ones((num_heads, 1, 1))), requires_grad=True)
-        self.scale = qk_scale or head_dim ** -0.5  # 스케일링 인자
 
-        # 상대적 위치 바이어스 테이블 초기화
-        self.relative_position_bias_table = nn.Parameter(
-            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))
+        # V2: small meta network to generate continuous relative position bias
+        self.crpb_mlp = nn.Sequential(nn.Linear(2, 512, bias=True),
+                                      nn.ReLU(inplace=True),
+                                      nn.Linear(512, num_heads, bias=False))
 
-        # 상대적 위치 인덱스 계산
-        self.relative_position_index = self.calculate_relative_position_index(window_size)
-
+        # V2: generate and register rpb
+        self._create_relative_position_table()        
+        
         # QKV 선형 변환과 드롭아웃 레이어 초기화
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)  # QKV 행렬 생성
         self.attn_drop = nn.Dropout(attn_drop)  # 어텐션 드롭아웃
         self.proj = nn.Linear(dim, dim)  # 최종 출력을 위한 선형 변환
         self.proj_drop = nn.Dropout(proj_drop)  # 출력 드롭아웃
 
-        trunc_normal_(self.relative_position_bias_table, std=.02)  # 상대적 위치 바이어스 테이블 초기화
         self.softmax = nn.Softmax(dim=-1)  # 소프트맥스 함수
 
-    def calculate_relative_position_index(self, window_size):
-        # 상대적 위치 인덱스를 계산하는 내부 함수
-        coords_h = torch.arange(window_size[0])
-        coords_w = torch.arange(window_size[1])
-        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2차원 격자 생성
-        coords_flatten = torch.flatten(coords, 1)  # 격자를 1차원으로 평탄화
-        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 상대적 좌표 계산
+    # V2
+    def _create_relative_position_table(self):
+        '''
+        [v1] 
+        - 상대적 위치 바이어스 테이블이 학습가능한 파라미터로 취급되며, 특정분포로 초기화되어야 함
+        - 상대적 위치 정보가 고정된 값으로, 학습 과정에서 변경되지 않고 별도로 저장할 필요 없음
+        [v2] 
+        - 상대적 위치 좌표를 로그 스케일로 변환하는 방식을 사용해, 윈도우 크기에 비례해 동적으로 계산하며, 초기화 불필요
+        - 상대적 위치 정보가 학습가능하지 않지만 최종 저장되는 모델에 포함되어야 효율적이기 때문에 buffer로 등록
+        '''
+        # 상대적 위치 좌표 테이블 생성
+        relative_coords_h = torch.arange(-(self.window_size[0] - 1), self.window_size[0], dtype=torch.float32)
+        relative_coords_w = torch.arange(-(self.window_size[1] - 1), self.window_size[1], dtype=torch.float32)
+        relative_coords_table = torch.stack(torch.meshgrid([relative_coords_h, relative_coords_w])).permute(1, 2, 0).contiguous().unsqueeze(0)
+
+        # 윈도우 크기로 정규화
+        if self.pretrained_window_size[0] > 0:
+            relative_coords_table[:, :, :, 0] /= (self.pretrained_window_size[0] - 1)
+            relative_coords_table[:, :, :, 1] /= (self.pretrained_window_size[1] - 1)
+        else:
+            relative_coords_table[:, :, :, 0] /= (self.window_size[0] - 1)
+            relative_coords_table[:, :, :, 1] /= (self.window_size[1] - 1)
+
+        # 로그 스케일로 변환
+        if self.rpb_scale: 
+            relative_coords_table *= 8
+            relative_coords_table = torch.sign(relative_coords_table) * torch.log2(torch.abs(relative_coords_table) + 1.0) / torch.log2(8)
+        else:
+            relative_coords_table = torch.sign(relative_coords_table) * torch.log2(torch.abs(relative_coords_table) + 1.0)
+
+        self.register_buffer("relative_coords_table", relative_coords_table)
+
+        # 윈도우 내 각 토큰 쌍에 대한 상대적 위치 인덱스 계산
+        coords_h = torch.arange(self.window_size[0])
+        coords_w = torch.arange(self.window_size[1])
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))
+        coords_flatten = torch.flatten(coords, 1)
+        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
         relative_coords = relative_coords.permute(1, 2, 0).contiguous()
-        relative_coords[:, :, 0] += window_size[0] - 1
-        relative_coords[:, :, 1] += window_size[1] - 1
-        relative_coords[:, :, 0] *= 2 * window_size[1] - 1
-        return relative_coords.sum(-1)  # 최종 상대적 위치 인덱스
+        relative_coords[:, :, 0] += self.window_size[0] - 1
+        relative_coords[:, :, 1] += self.window_size[1] - 1
+        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
+        relative_position_index = relative_coords.sum(-1)
+
+        self.register_buffer("relative_position_index", relative_position_index)
+
 
     def forward(self, x, mask=None):
         # 순방향 전파 함수
@@ -125,10 +162,13 @@ class WindowAttention(nn.Module):
         t_scale = torch.clamp(self.t_scale, max=torch.log(torch.tensor(1. / 0.01))).exp()
         attn = attn * t_scale
 
-        # 상대적 위치 편향 적용
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
+        # v2: 상대적 위치 편향 적용
+        relative_position_bias_table = self.cpb_mlp(self.relative_coords_table).view(-1, self.num_heads)
+        relative_position_bias = relative_position_bias_table[self.relative_position_index.view(-1)].view(
+            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+        if self.rpb_scale:
+            relative_position_bias = 16 * torch.sigmoid(relative_position_bias)
         attn = attn + relative_position_bias.unsqueeze(0)
 
         # 마스크 적용 (필요한 경우)
