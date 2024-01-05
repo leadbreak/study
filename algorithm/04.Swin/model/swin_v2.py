@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import torch.nn.functional as F
+import numpy as np
 
 class embeddings(nn.Module):
     def __init__(self, 
@@ -89,9 +90,10 @@ class WindowAttention(nn.Module):
         self.t_scale = nn.Parameter(torch.log(10*torch.ones((num_heads, 1, 1))), requires_grad=True)
 
         # V2: small meta network to generate continuous relative position bias
-        self.crpb_mlp = nn.Sequential(nn.Linear(2, 512, bias=True),
+        self.crpb_mlp = nn.Sequential(nn.Linear(2, 384, bias=True),
                                       nn.ReLU(inplace=True),
-                                      nn.Linear(512, num_heads, bias=False))
+                                      nn.Dropout(p=.125),
+                                      nn.Linear(384, num_heads, bias=False))
 
         # V2: generate and register rpb
         self._create_relative_position_table()        
@@ -120,7 +122,7 @@ class WindowAttention(nn.Module):
         relative_coords_table = torch.stack(torch.meshgrid([relative_coords_h, relative_coords_w])).permute(1, 2, 0).contiguous().unsqueeze(0)
 
         # 윈도우 크기로 정규화
-        if self.pretrained_window_size[0] > 0:
+        if self.pretrained_window_size > 0:
             relative_coords_table[:, :, :, 0] /= (self.pretrained_window_size[0] - 1)
             relative_coords_table[:, :, :, 1] /= (self.pretrained_window_size[1] - 1)
         else:
@@ -130,7 +132,7 @@ class WindowAttention(nn.Module):
         # 로그 스케일로 변환
         if self.rpb_scale: 
             relative_coords_table *= 8
-            relative_coords_table = torch.sign(relative_coords_table) * torch.log2(torch.abs(relative_coords_table) + 1.0) / torch.log2(8)
+            relative_coords_table = torch.sign(relative_coords_table) * torch.log2(torch.abs(relative_coords_table) + 1.0) / torch.log2(torch.tensor(8))
         else:
             relative_coords_table = torch.sign(relative_coords_table) * torch.log2(torch.abs(relative_coords_table) + 1.0)
 
@@ -158,12 +160,12 @@ class WindowAttention(nn.Module):
         q, k, v = qkv.unbind(0)  # Q, K, V 분리
         
         # cosine attention
-        attn = (F.normalize(q, dim=-1) & F.normalize(k, dim=-1).transpose(-2,-1))
-        t_scale = torch.clamp(self.t_scale, max=torch.log(torch.tensor(1. / 0.01))).exp()
+        attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2,-1))
+        t_scale = torch.clamp(self.t_scale, max=torch.log(torch.tensor(1. / 0.01)).to(self.t_scale.device)).exp()
         attn = attn * t_scale
 
         # v2: 상대적 위치 편향 적용
-        relative_position_bias_table = self.cpb_mlp(self.relative_coords_table).view(-1, self.num_heads)
+        relative_position_bias_table = self.crpb_mlp(self.relative_coords_table).view(-1, self.num_heads)
         relative_position_bias = relative_position_bias_table[self.relative_position_index.view(-1)].view(
             self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
@@ -239,7 +241,7 @@ class SwinTransformerBlock(nn.Module):
     """
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, pretrained_window_size=0):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -253,25 +255,25 @@ class SwinTransformerBlock(nn.Module):
             self.shift_size = 0
             self.window_size = min(self.input_resolution)
 
-        assert 0 <= self.shift_size < self.window_size, "shift_size는 0과 window_size 사이의 값이어야 함"
-
-        # Layer 1: 정규화 레이어
-        self.norm1 = norm_layer(dim)
+        assert 0 <= self.shift_size < self.window_size, "shift_size는 0과 window_size 사이의 값이어야 함"       
         
-        # Layer 2: 윈도우 기반 멀티헤드 셀프 어텐션 레이어
+        # 윈도우 기반 멀티헤드 셀프 어텐션 레이어
         self.attn = WindowAttention(
             dim, window_size=to_2tuple(self.window_size), num_heads=num_heads,
-            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+            qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop,
+            pretrained_window_size=pretrained_window_size)
 
-        # Layer 3: 드롭 패스 (스킵 커넥션의 드롭아웃)
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-
-        # Layer 4: 두 번째 정규화 레이어
-        self.norm2 = norm_layer(dim)
+        # stochastic depth + res-post-norm 1
+        self.drop_path1 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm1 = norm_layer(dim)        
 
         # Layer 5: MLP 레이어
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        
+        # stochastic depth + res-post-norm 2
+        self.drop_path2 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
 
         # 어텐션 마스크 계산
         self._calculate_attn_mask()
@@ -328,8 +330,8 @@ class SwinTransformerBlock(nn.Module):
         x = x.view(B, H * W, C)
 
         # res-post-norm 적용 및 레이어 통과 후 잔차 연결
-        x = shortcut + self.norm1(self.drop_path(x))
-        x = x + self.norm2(self.drop_path(self.mlp(x)))
+        x = shortcut + self.norm1(self.drop_path1(x))
+        x = x + self.norm2(self.drop_path2(self.mlp(x)))
 
         return x
 
@@ -391,7 +393,7 @@ class StageLayer(nn.Module):
     """
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None):
+                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None, pretrained_window_size=0):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -407,7 +409,8 @@ class StageLayer(nn.Module):
                                  qkv_bias=qkv_bias, qk_scale=qk_scale,
                                  drop=drop, attn_drop=attn_drop,
                                  drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
-                                 norm_layer=norm_layer)
+                                 norm_layer=norm_layer,
+                                 pretrained_window_size=pretrained_window_size)
             for i in range(depth)])
 
         # 다운샘플링 레이어 (있을 경우)
@@ -419,26 +422,42 @@ class StageLayer(nn.Module):
 
         x = self.downsample(x)
         return x
+    
+    def _init_respostnorm(self):
+        for blk in self.blocks:
+            nn.init.constant_(blk.norm1.bias, 0)
+            nn.init.constant_(blk.norm1.weight, 0)
+            nn.init.constant_(blk.norm2.bias, 0)
+            nn.init.constant_(blk.norm2.weight, 0)
 
-class SwinTransformer(nn.Module):
-    """ Swin Transformer 전체 모델
+class SwinTransformerV2(nn.Module):
+    """ Swin Transformer V2 전체 모델
     """
     def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=100,
                  embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24],
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,
-                 norm_layer=nn.LayerNorm, patch_norm=True,
-                 **kwargs):
+                 norm_layer=nn.LayerNorm, patch_norm=True, pretrained_window_sizes=[0,0,0,0],
+                 ape=True,**kwargs):
         super().__init__()
 
         self.num_classes = num_classes
         self.embed_dim = embed_dim
         self.patch_norm = patch_norm
+        self.ape = ape
 
         # 패치 임베딩 레이어
         self.embeddings = embeddings(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim,
             norm_layer=norm_layer if patch_norm else None)
+        
+        # absolute positional embedding
+        if self.ape:
+            num_patches = self.embeddings.num_patches
+            self.absolute_pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+            trunc_normal_(self.absolute_pos_embed, std=0.02)
+            
+        self.pos_drop = nn.Dropout(p=drop_rate)
 
         # 스테이지별 레이어 생성
         self.stages = nn.ModuleList()
@@ -456,7 +475,7 @@ class SwinTransformer(nn.Module):
                 drop_path=drop_path_rate,
                 norm_layer=norm_layer,
                 downsample=PatchMerging if i_stage < len(depths) - 1 else None,
-                )
+                pretrained_window_size=pretrained_window_sizes[i_stage])
             self.stages.append(layer)
             
         final_dim = embed_dim * 2 ** (len(depths) - 1)  # 최종 차원 계산
@@ -464,28 +483,34 @@ class SwinTransformer(nn.Module):
         self.pooler = nn.AdaptiveAvgPool1d(1) # Global Average Pooling
         self.classifier = nn.Linear(final_dim, num_classes) if num_classes > 0 else nn.Identity()
         
-    #     # 초기화 수행
-    #     self._initialize_weights()
-
-    # def _initialize_weights(self):
-    #     for m in self.modules():
-    #         if isinstance(m, nn.Linear):
-    #             init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
-    #             if m.bias is not None:
-    #                 init.zeros_(m.bias)
-    #         elif isinstance(m, nn.LayerNorm):
-    #             init.ones_(m.weight)
-    #             init.zeros_(m.bias)                
-    #         elif isinstance(m, nn.Conv2d):
-    #             init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-    #             if m.bias is not None:
-    #                 init.zeros_(m.bias)
+        # 초기화
+        self.apply(self._init_weights)
+        for bly in self.stages:
+            bly._init_respostnorm()
+        
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
                     
-    def forward(self, x):
-        x = self.embeddings(x)        
+    def forward_features(self, x):
+        x = self.embeddings(x)     
+        if self.ape:
+            x  = x + self.absolute_pos_embed
+        x = self.pos_drop(x)
+           
         for stage in self.stages:
             x = stage(x)            
-        x = self.layernorm(x)        
-        x = self.pooler(x.transpose(1,2)).flatten(1)        
+        x = self.layernorm(x)             # (B, L, C)
+        x = self.pooler(x.transpose(1,2)) # (B, C, 1)
+        x = torch.flatten(x, 1)           
+        return x
+    
+    def forward(self, x):
+        x = self.forward_features(x)   
         x = self.classifier(x)
         return x
