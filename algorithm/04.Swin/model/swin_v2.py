@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import torch.nn.functional as F
-import numpy as np
 
 class embeddings(nn.Module):
     def __init__(self, 
@@ -306,7 +305,7 @@ class SwinTransformerBlock(nn.Module):
         # 순방향 전파
         H, W = self.input_resolution
         B, L, C = x.shape
-        assert L == H * W, "입력 특징의 크기가 올바르지 않음"
+        assert L == H * W, f"L({L}) != H({H}) x W({W})"
 
         shortcut = x
         x = x.view(B, H, W, C)
@@ -438,10 +437,11 @@ class SwinTransformerV2(nn.Module):
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,
                  norm_layer=nn.LayerNorm, patch_norm=True, pretrained_window_sizes=[0,0,0,0],
-                 ape=True,**kwargs):
+                 ape=False,**kwargs):
         super().__init__()
 
         self.num_classes = num_classes
+        self.img_size = img_size
         self.embed_dim = embed_dim
         self.patch_norm = patch_norm
         self.ape = ape
@@ -478,10 +478,10 @@ class SwinTransformerV2(nn.Module):
                 pretrained_window_size=pretrained_window_sizes[i_stage])
             self.stages.append(layer)
             
-        final_dim = embed_dim * 2 ** (len(depths) - 1)  # 최종 차원 계산
-        self.layernorm = norm_layer(final_dim)  # 최종 출력 정규화 레이어
+        self.final_dim = embed_dim * 2 ** (len(depths) - 1)  # 최종 차원 계산
+        self.layernorm = norm_layer(self.final_dim)  # 최종 출력 정규화 레이어
         self.pooler = nn.AdaptiveAvgPool1d(1) # Global Average Pooling
-        self.classifier = nn.Linear(final_dim, num_classes) if num_classes > 0 else nn.Identity()
+        self.classifier = nn.Linear(self.final_dim, num_classes) if num_classes > 0 else nn.Identity()
         
         # 초기화
         self.apply(self._init_weights)
@@ -507,10 +507,11 @@ class SwinTransformerV2(nn.Module):
             x = stage(x)            
         x = self.layernorm(x)             # (B, L, C)
         x = self.pooler(x.transpose(1,2)) # (B, C, 1)
-        x = torch.flatten(x, 1)           
+        x = torch.flatten(x, 1)           # (B, C)
         return x
     
     def forward(self, x):
         x = self.forward_features(x)   
         x = self.classifier(x)
         return x
+    

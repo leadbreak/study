@@ -60,6 +60,7 @@ def load_data(img_size:int,
 @click.option('--define_model', default='v2')
 @click.option('--train_option', default='holdout')
 @click.option('--data_dir', default='../../data/sports')
+@click.option('--model_save', default=True)
 @click.option('--model_path', default='../../models/swin/model.pth')
 @click.option('--epochs', default=10)
 @click.option('--batch_size', default=512)
@@ -82,6 +83,7 @@ def load_data(img_size:int,
 def main(define_model:str='self',
          data_dir:str='../data/sports',
          train_option:str='total',
+         model_save:bool=True,
          model_path:str=None,
          epochs:int=10,
          batch_size:int=512,
@@ -263,9 +265,11 @@ def main(define_model:str='self',
         if train_option == 'total':
             # 모델 저장
             if epoch_loss < best_loss:
+                
                 best_loss = epoch_loss
-                vit_save = True
-                torch.save(model.state_dict(), model_path)
+                vit_save = model_save
+                if vit_save:
+                    torch.save(model.state_dict(), model_path)
                 
             epoch_duration = time.time() - start_time
             training_time += epoch_duration
@@ -292,8 +296,9 @@ def main(define_model:str='self',
             # 모델 저장
             if val_loss < best_loss:
                 best_loss = val_loss
-                vit_save = True
-                torch.save(model.state_dict(), model_path)
+                vit_save = model_save
+                if vit_save:
+                    torch.save(model.state_dict(), model_path)
 
             epoch_duration = time.time() - start_time
             training_time += epoch_duration
