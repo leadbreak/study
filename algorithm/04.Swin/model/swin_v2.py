@@ -122,8 +122,8 @@ class WindowAttention(nn.Module):
 
         # 윈도우 크기로 정규화
         if self.pretrained_window_size > 0:
-            relative_coords_table[:, :, :, 0] /= (self.pretrained_window_size[0] - 1)
-            relative_coords_table[:, :, :, 1] /= (self.pretrained_window_size[1] - 1)
+            relative_coords_table[:, :, :, 0] /= (self.pretrained_window_size - 1)
+            relative_coords_table[:, :, :, 1] /= (self.pretrained_window_size - 1)
         else:
             relative_coords_table[:, :, :, 0] /= (self.window_size[0] - 1)
             relative_coords_table[:, :, :, 1] /= (self.window_size[1] - 1)
@@ -437,7 +437,7 @@ class SwinTransformerV2(nn.Module):
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,
                  norm_layer=nn.LayerNorm, patch_norm=True, pretrained_window_sizes=[0,0,0,0],
-                 ape=False,**kwargs):
+                 ape=True,**kwargs):
         super().__init__()
 
         self.num_classes = num_classes

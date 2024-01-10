@@ -1,7 +1,8 @@
 MODEL:
   TYPE: swinv2
-  NAME: simmim_pretrain
-  DROP_PATH_RATE: 0.1
+  NAME: simmim_train
+  PRETRAINED: '../../models/swin2/simmim.pth'
+  DROP_PATH_RATE: 0.2
   SIMMIM:
     NORM_TARGET:
       ENABLE: True
@@ -16,11 +17,11 @@ DATA:
   IMG_SIZE: 224
   MASK_PATCH_SIZE: 32
   MASK_RATIO: 0.6
-  BATCH_SIZE: 512
+  BATCH_SIZE: 960
   NUM_WORKERS: 24
-  DATA_PATH: '../../data/sports/train'
+  DATA_PATH: '../../data/sports'
 TRAIN:
-  EPOCHS: 100
+  EPOCHS: 20
   WARMUP_EPOCHS: 10
   BASE_LR: 1e-4
   WARMUP_LR: 5e-7
@@ -29,7 +30,7 @@ TRAIN:
   LR_SCHEDULER:
     NAME: 'multistep'
     GAMMA: 0.1
-    MULTISTEPS: [70,]
+    MULTISTEPS: [700,]
 PRINT_FREQ: 100
 SAVE_FREQ: 5
 TAG: simmim_pretrain__swinv2_tiny__img224_window7__800ep
