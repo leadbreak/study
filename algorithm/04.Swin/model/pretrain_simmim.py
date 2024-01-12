@@ -1,307 +1,319 @@
+import numpy as np
+import yaml
+from box import Box
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
+import simmim
+from swin_v2 import SwinTransformerV2
+
+from torch.cuda.amp import autocast, GradScaler
+from torch.nn.utils import clip_grad_norm_
+from tqdm import tqdm
+import time
+
+from timm.data import Mixup
+import transformers
+from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
-from torchvision import transforms
-from torch.cuda.amp import autocast, GradScaler
-import torchvision.transforms as T
 
-import numpy as np
-import time       
-from datetime import datetime
-from tqdm import tqdm
 from sklearn.metrics import confusion_matrix
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
-from timm.data import Mixup
-from torch.nn.utils import clip_grad_norm_
-import transformers
-import timm
 
-import click
 
-# MaskGenerator 클래스 정의
-class MaskGenerator:
-    def __init__(self, input_size=192, mask_patch_size=32, model_patch_size=4, mask_ratio=0.6):
-        self.input_size = input_size
-        self.mask_patch_size = mask_patch_size
-        self.model_patch_size = model_patch_size
-        self.mask_ratio = mask_ratio
-        
-        assert self.input_size % self.mask_patch_size == 0
-        assert self.mask_patch_size % self.model_patch_size == 0
-        
-        self.rand_size = self.input_size // self.mask_patch_size
-        self.scale = self.mask_patch_size // self.model_patch_size
-        
-        self.token_count = self.rand_size ** 2
-        self.mask_count = int(np.ceil(self.token_count * self.mask_ratio))
-        
-    def __call__(self):
-        mask_idx = np.random.permutation(self.token_count)[:self.mask_count]
-        mask = np.zeros(self.token_count, dtype=int)
-        mask[mask_idx] = 1
-        
-        mask = mask.reshape((self.rand_size, self.rand_size))
-        mask = mask.repeat(self.scale, axis=0).repeat(self.scale, axis=1)
-        
-        return torch.tensor(mask, dtype=torch.float32)
+simmim_config = yaml.load(open('config/pretrain.yaml'), Loader=yaml.FullLoader)
 
-# SimMIMTransform 클래스 정의
-class SimMIMTransform:
-    def __init__(self, config):
-        self.transform_img = T.Compose([
-            T.Lambda(lambda img: img.convert('RGB') if img.mode != 'RGB' else img),
-            T.RandomResizedCrop(config['IMG_SIZE'], scale=(0.67, 1.), ratio=(3. / 4., 4. / 3.)),
-            T.RandomHorizontalFlip(),
-            T.ToTensor(),
-            T.Normalize(mean=torch.tensor([0.485, 0.456, 0.406]), std=torch.tensor([0.229, 0.224, 0.225]))
-        ])
-        self.mask_generator = MaskGenerator(
-            input_size=config['IMG_SIZE'],
-            mask_patch_size=config['MASK_PATCH_SIZE'],
-            model_patch_size=config['MODEL_PATCH_SIZE'],
-            mask_ratio=config['MASK_RATIO'],
-        )
+encoder_config = {'img_size':simmim_config['DATA']['IMG_SIZE'], 
+                'patch_size':simmim_config['MODEL']['SWIN']['PATCH_SIZE'], 
+                'in_chans':3, 
+                'num_classes':100,
+                'embed_dim':simmim_config['MODEL']['SWIN']['EMBED_DIM'], 
+                'depths':simmim_config['MODEL']['SWIN']['DEPTHS'], 
+                'num_heads':simmim_config['MODEL']['SWIN']['NUM_HEADS'],           
+                'window_size':simmim_config['MODEL']['SWIN']['WINDOW_SIZE'], 
+                'mlp_ratio':4., 
+                'qkv_bias':True, 
+                'qk_scale':None,
+                'drop_rate':0., 
+                'attn_drop_rate':0., 
+                'drop_path_rate':simmim_config['MODEL']['DROP_PATH_RATE'],
+                'norm_layer':nn.LayerNorm, 
+                'patch_norm':True, 
+                'pretrained_window_sizes':[0,0,0,0],
+                'ape':True}
+
+encoder_stride = 32
+in_chans = encoder_config['in_chans']
+patch_size = encoder_config['patch_size']
+
+encoder = simmim.SwinTransformerV2ForSimMIM(**encoder_config)
+
+model = simmim.SimMIM( encoder=encoder, 
+                       encoder_stride=encoder_stride, 
+                       in_chans=in_chans, 
+                       patch_size=patch_size)
+
+simmim_config = Box(simmim_config)
+dataloader = simmim.build_loader_simmim(simmim_config)
+
+base_lr = float(simmim_config.TRAIN.BASE_LR)
+weight_decay = simmim_config.TRAIN.WEIGHT_DECAY
+optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=weight_decay)
+warmup_epochs = simmim_config.TRAIN.WARMUP_EPOCHS
+train_epochs = simmim_config.TRAIN.EPOCHS
+
+multisteps = simmim_config.TRAIN.LR_SCHEDULER.MULTISTEPS
+gamma = simmim_config.TRAIN.LR_SCHEDULER.GAMMA
+# scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=multisteps, gamma=gamma)
+
+# LambdaLR 스케줄러 설정
+lambda1 = lambda epoch: epoch / warmup_epochs if epoch < warmup_epochs else 1 # Warmup을 위한 Lambda 함수 정의
+scheduler_warmup = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)
+
+# MultiStepLR 스케줄러 설정
+scheduler_multistep = optim.lr_scheduler.MultiStepLR(optimizer, milestones=multisteps, gamma=gamma)
+
+device = 'cuda:3'
+model.to(device)
+
+model_save = True
+model_path = '../../models/swin2/simmim.pth'
+
+training_time = 0
+losses = []
+val_losses = []
+lrs = []
+best_loss = float('inf')
+
+# GradScaler 초기화
+scaler = GradScaler()
+
+for epoch in range(train_epochs):
+    model.train()
+    start_time = time.time()
+    running_loss = 0.0
+    pbar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Epoch {epoch + 1}")
     
-    def __call__(self, img):
-        img = self.transform_img(img)
-        mask = self.mask_generator()
-        return img, mask
+    for _, data in pbar:
+        image, mask = data[0].to(device), data[1].to(device)
+        optimizer.zero_grad()
 
-# collate_fn 함수 정의
-def collate_fn(batch):
-    batch_images, batch_masks = zip(*batch)
-    batch_images = torch.stack(batch_images)
-    batch_masks = torch.stack(batch_masks)
-    return batch_images, batch_masks
+        # AutoCast 적용
+        with autocast():
+            loss = model(image, mask)
+            
+        # 스케일링된 그라디언트 계산
+        scaler.scale(loss).backward()
 
-# DataLoader 구성
-def build_loader_simmim(config):
-    transform = SimMIMTransform(config)
-    dataset = ImageFolder(config['DATA_PATH'], transform)
-    dataloader = DataLoader(dataset, config['BATCH_SIZE'], shuffle=True, num_workers=config['NUM_WORKERS'], pin_memory=True, drop_last=True, collate_fn=collate_fn)
-    return dataloader
-
-
-@click.command()
-@click.option('--define_model', default='self')
-@click.option('--train_option', default='holdout')
-@click.option('--data_dir', default='../../data/sports')
-@click.option('--model_path', default='../../models/swin/model.pth')
-@click.option('--epochs', default=10)
-@click.option('--batch_size', default=512)
-@click.option('--label_smoothing', default=0.)
-@click.option('--mixup_label_smoothing', default=0.1)
-@click.option('--learning_rate', default=1e-3)
-@click.option('--device', default='cuda:0')
-@click.option('--img_size', default=224)
-@click.option('--patch_size', default=4)
-@click.option('--window_size', default=7)
-@click.option('--num_classes', default=100)
-@click.option('--drop_rate', default=0.)
-@click.option('--attn_drop_rate', default=0.)
-@click.option('--mlp_ratio', default=4.)
-@click.option('--model_type', default='tiny')
-@click.option('--weight_decay', default=5e-3)
-@click.option('--mixup_alpha', default=0.7)
-@click.option('--cutmix_alpha', default=0.7)
-@click.option('--mixup_prob', default=1.0)
-def main(define_model:str='self',
-         data_dir:str='../data/sports',
-         train_option:str='total',
-         model_path:str=None,
-         epochs:int=10,
-         batch_size:int=512,
-         label_smoothing:float=0.,
-         learning_rate:float=1e-3,
-         device:str='cuda:0',
-         img_size:int=224,
-         patch_size:int=4,
-         in_chans:int=3,
-         num_classes:int=100,
-         window_size:int=7,
-         mlp_ratio:float=4.0,
-         drop_rate:float=0.,
-         attn_drop_rate:float=0.,
-         model_type:str='tiny',
-         weight_decay:float=5e-3,
-         mixup_label_smoothing:float=0.1,
-         mixup_alpha:float=0.3,
-         cutmix_alpha:float=0.3,
-         mixup_prob:float=0.7,
-         ):
-    
-    if define_model == 'timm':
-        model_name = f'swin_{model_type}_patch{patch_size}_window{window_size}_{img_size}.ms_in22k'
-        
-    elif define_model == 'swin_v1':
-        args = {}
-        if model_type == 'small':
-            args['embed_dim'] = 96
-            args['heads'] = [3,6,12,24]
-            args['depths'] = [2,2,18,2]
-            args['drop_path_rate'] = 0.3
-        elif model_type == 'base':
-            args['embed_dim'] = 128
-            args['heads'] = [4,8,16,32]
-            args['depths'] = [2,2,18,2]
-            args['drop_path_rate'] = 0.5
-        elif model_type == 'large':
-            args['embed_dim'] = 96
-            args['heads'] = [6,12,24,68]
-            args['depths'] = [2,2,18,2]
-            args['drop_path_rate'] = 0.5
+        # 그라디언트 클리핑 전에 스케일링 제거
+        scaler.unscale_(optimizer)
+        if simmim_config.TRAIN.CLIP_GRAD:
+            clip_grad_norm_(model.parameters(), max_norm=simmim_config.TRAIN.CLIP_GRAD)
         else:
-            args['embed_dim'] = 96
-            args['heads'] = [3,6,12,24]
-            args['depths'] = [2,2,6,2]
-            args['drop_path_rate'] = 0.2
-    
-    elif define_model == 'swin_v2':
-        args = {}
-        if model_type == 'small':
-            args['embed_dim'] = 96
-            args['heads'] = [3,6,12,24]
-            args['depths'] = [2,2,18,2]
-            args['drop_path_rate'] = 0.3
-        elif model_type == 'base':
-            args['embed_dim'] = 128
-            args['heads'] = [4,8,16,32]
-            args['depths'] = [2,2,18,2]
-            args['drop_path_rate'] = 0.5
-        elif model_type == 'large':
-            args['embed_dim'] = 96
-            args['heads'] = [6,12,24,68]
-            args['depths'] = [2,2,18,2]
-            args['drop_path_rate'] = 0.5
+            clip_grad_norm_(model.parameters())
+
+        # 옵티마이저 스텝 및 스케일러 업데이트
+        scaler.step(optimizer)
+        scaler.update()
+        if epoch <= warmup_epochs:
+            scheduler_warmup.step()
         else:
-            args['embed_dim'] = 96
-            args['heads'] = [3,6,12,24]
-            args['depths'] = [2,2,6,2]
-            args['drop_path_rate'] = 0.2
-        
-    
-    # 파일명이 지정되지 않으면 시간으로
-    if model_path is None:
-        current_time = datetime.now()
-        model_path = current_time.strftime("%y%m%d_%H%M") + ".pth"
-        
-    if define_model == 'timm':
-        model = timm.create_model(model_name=model_name,
-                                  pretrained=False,
-                                  num_classes=num_classes)
-    elif define_model == 'swin_v1':
-        import swin_v1 as swin
-        model = swin.SwinTransformer(img_size=img_size, 
-                                    patch_size=patch_size,
-                                    window_size=window_size,
-                                    in_chans=in_chans, 
-                                    num_classes=num_classes, 
-                                    mlp_ratio=mlp_ratio,
-                                    drop_rate=drop_rate,
-                                    attn_drop_rate=attn_drop_rate,
-                                    **args)
-    elif define_model == 'swin_v2':
-        import swin_v2 as swin
-        model = swin.SwinTransformerV2(img_size=img_size, 
-                                       patch_size=patch_size,
-                                       window_size=window_size,
-                                       in_chans=in_chans, 
-                                       num_classes=num_classes, 
-                                       mlp_ratio=mlp_ratio,
-                                       drop_rate=drop_rate,
-                                       attn_drop_rate=attn_drop_rate,
-                                       **args)   
-    
-    model.to(device)
-    
-    # Config 설정
-    config = {
-        'DATA_PATH': '/path/to/your/dataset',
-        'IMG_SIZE': 224,
-        'MASK_PATCH_SIZE': 32,
-        'MODEL_PATCH_SIZE': 4,
-        'MASK_RATIO': 0.6,
-        'BATCH_SIZE': 32,
-        'NUM_WORKERS': 4
-    }
-    
-    dataloader = build_loader_simmim(config)
-    
-    criterion = nn.MSELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    warmup_steps = int(len(dataloader)*epochs*0.1)
-    train_steps = len(dataloader)*epochs
-    scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
-                                                            num_warmup_steps=warmup_steps, 
-                                                            num_training_steps=train_steps,
-                                                            num_cycles=0.5)
+            scheduler_multistep.step()
+        # scheduler.step()
+            
+        lr = optimizer.param_groups[0]["lr"]
+        lrs.append(lr)
+        running_loss += loss.item()
 
-    training_time = 0
-    losses = []
-    lrs = []
-    best_loss = float('inf')
+    epoch_loss = running_loss / len(dataloader)
+    losses.append(epoch_loss)
 
-    # GradScaler 초기화
-    scaler = GradScaler()
-
-    for epoch in range(epochs):
-        model.train()
-        start_time = time.time()
-        running_loss = 0.0
-        pbar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Epoch {epoch + 1}")
+    # 모델 저장
+    if epoch_loss < best_loss:
         
-        for _, data in pbar:
+        best_loss = epoch_loss
+        vit_save = model_save
+        if vit_save:
+            torch.save(model.state_dict(), model_path)
+        
+    epoch_duration = time.time() - start_time
+    training_time += epoch_duration
+    
+    text = f'\tLoss: {epoch_loss:.4f}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
+    
+    if vit_save:
+        text += f' - model saved!'
+        vit_save = False    
+        
+    print(text)
+
+swin = SwinTransformerV2(pretrained_window_sizes=[7,7,7,7], ape=True)
+swin.load_state_dict(model.encoder.state_dict(), strict=False)
+
+# Transforms 정의하기
+train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(224, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    transforms.RandomErasing(p=0.9, scale=(0.02, 0.33)),
+])
+
+test_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+data_dir = '../../data/sports'
+batch_size = 960
+
+train_path = data_dir+'/train'
+valid_path = data_dir+'/valid'
+test_path = data_dir+'/test'
+
+# dataset load
+train_data = ImageFolder(train_path, transform=train_transform)
+valid_data = ImageFolder(valid_path, transform=test_transform)
+test_data = ImageFolder(test_path, transform=test_transform)
+
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+
+torch.cuda.empty_cache()
+
+max_norm = 5.0
+swin.to(device)
+
+mixup_fn = Mixup(mixup_alpha=1., 
+                cutmix_alpha=1., 
+                prob=1., 
+                switch_prob=0.5, 
+                mode='batch',
+                label_smoothing=.1,
+                num_classes=100)
+
+epochs = 500
+
+criterion = nn.CrossEntropyLoss(label_smoothing=0.)
+optimizer = optim.AdamW(swin.parameters(), lr=1e-3, weight_decay=5e-3)
+warmup_steps = int(len(train_loader)*epochs*0.1)
+train_steps = len(train_loader)*epochs
+scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
+                                                        num_warmup_steps=warmup_steps, 
+                                                        num_training_steps=train_steps,
+                                                        num_cycles=0.5)
+
+training_time = 0
+losses = []
+val_losses = []
+lrs = []
+best_loss = float('inf')
+
+# GradScaler 초기화
+scaler = GradScaler()
+
+for epoch in range(epochs):
+    swin.train()
+    start_time = time.time()
+    running_loss = 0.0
+    pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch + 1}")
+    
+    for _, data in pbar:
+        inputs, labels = data[0].to(device), data[1].to(device)
+        inputs, labels = mixup_fn(inputs, labels)
+        optimizer.zero_grad()
+
+        # AutoCast 적용
+        with autocast():
+            outputs = swin(inputs)
+            loss = criterion(outputs, labels)
+            
+        # 스케일링된 그라디언트 계산
+        scaler.scale(loss).backward()
+
+        # 그라디언트 클리핑 전에 스케일링 제거
+        scaler.unscale_(optimizer)
+        clip_grad_norm_(swin.parameters(), max_norm=max_norm)
+
+        # 옵티마이저 스텝 및 스케일러 업데이트
+        scaler.step(optimizer)
+        scaler.update()
+        scheduler.step()
+            
+        lr = optimizer.param_groups[0]["lr"]
+        lrs.append(lr)
+        running_loss += loss.item()
+
+    epoch_loss = running_loss / len(train_loader)
+    losses.append(epoch_loss)        
+
+    swin.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for data in valid_loader:
             inputs, labels = data[0].to(device), data[1].to(device)
-            optimizer.zero_grad()
+            outputs = swin(inputs)
+            loss = criterion(outputs, labels)
+            val_loss += loss.item()
+            
+    val_loss /= len(valid_loader)
+    val_losses.append(val_loss)
+    
+    # 모델 저장
+    if val_loss < best_loss:
+        best_loss = val_loss
+        # vit_save = True
+        # if vit_save:
+        #     torch.save(swin.state_dict(), )
 
-            # AutoCast 적용
-            with autocast():
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
-                
-            # 스케일링된 그라디언트 계산
-            scaler.scale(loss).backward()
+    epoch_duration = time.time() - start_time
+    training_time += epoch_duration
+    
+    text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
+    
+    # if vit_save:
+    #     text += f' - swin saved!'
+    #     vit_save = False
 
-            # 그라디언트 클리핑 전에 스케일링 제거
-            scaler.unscale_(optimizer)
-            clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-            # 옵티마이저 스텝 및 스케일러 업데이트
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
-                
-            lr = optimizer.param_groups[0]["lr"]
-            lrs.append(lr)
-            running_loss += loss.item()
-
-        epoch_loss = running_loss / len(dataloader)
-        losses.append(epoch_loss)
+    print(text)
         
-        if train_option == 'total':
-            # 모델 저장
-            if epoch_loss < best_loss:
-                best_loss = epoch_loss
-                vit_save = True
-                torch.save(model.state_dict(), model_path)
-                
-            epoch_duration = time.time() - start_time
-            training_time += epoch_duration
-            
-            text = f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
-            
-            if vit_save:
-                text += f' - model saved!'
-                vit_save = False    
+text = f"Epoch 당 평균 소요시간 : {training_time / epochs:.2f}초"      
+print(text)
 
-        click.echo(text)
-            
-    text = f"Epoch 당 평균 소요시간 : {training_time / epochs:.2f}초"
-    styled_text = click.style(text, fg='cyan', bold=True)            
-    click.echo(styled_text)
+# 예측 수행 및 레이블 저장
+all_preds = []
+all_labels = []
+with torch.no_grad():
+    for images, labels in test_loader:
+        images, labels = images.to(device), labels.to(device)
+        outputs = swin(images)
+        _, predicted = torch.max(outputs, 1)
+        all_preds.extend(predicted.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
 
-if __name__ == '__main__':
-    main()
+# 혼동 행렬 생성
+cm = confusion_matrix(all_labels, all_preds)
+
+# 예측과 실제 레이블
+y_true = all_labels  # 실제 레이블
+y_pred = all_preds  # 모델에 의해 예측된 레이블
+
+# 전체 데이터셋에 대한 정확도
+accuracy = accuracy_score(y_true, y_pred)
+
+# 평균 정밀도, 리콜, F1-Score ('weighted')
+precision, recall, f1_score, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted')
+
+# 판다스 데이터프레임으로 결과 정리
+performance_metrics = pd.DataFrame({
+    'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score'],
+    'Value': [accuracy, precision, recall, f1_score]
+})
+
+# 데이터프레임 출력
+print(performance_metrics)

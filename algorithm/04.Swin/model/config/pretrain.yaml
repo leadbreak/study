@@ -1,7 +1,7 @@
 MODEL:
   TYPE: swinv2
   NAME: simmim_pretrain
-  DROP_PATH_RATE: 0.1
+  DROP_PATH_RATE: 0.0
   SIMMIM:
     NORM_TARGET:
       ENABLE: True
@@ -10,26 +10,19 @@ MODEL:
     EMBED_DIM: 96
     DEPTHS: [ 2, 2, 6, 2 ]
     NUM_HEADS: [ 3, 6, 12, 24 ]
-    WINDOW_SIZE: 7
+    WINDOW_SIZE: 6
     PATCH_SIZE: 4
 DATA:
-  IMG_SIZE: 224
+  IMG_SIZE: 192
   MASK_PATCH_SIZE: 32
   MASK_RATIO: 0.6
-  BATCH_SIZE: 512
+  BATCH_SIZE: 1024
   NUM_WORKERS: 24
-  DATA_PATH: '../../data/sports/train'
+  DATA_PATH: '../../data/sports'
 TRAIN:
   EPOCHS: 100
   WARMUP_EPOCHS: 10
-  BASE_LR: 1e-4
-  WARMUP_LR: 5e-7
+  BASE_LR: 1.4e-3
   WEIGHT_DECAY: 0.05
   CLIP_GRAD: 5
-  LR_SCHEDULER:
-    NAME: 'multistep'
-    GAMMA: 0.1
-    MULTISTEPS: [70,]
-PRINT_FREQ: 100
-SAVE_FREQ: 5
-TAG: simmim_pretrain__swinv2_tiny__img224_window7__800ep
+TAG: simmim_pretrain__swinv2_tiny__img192_window6__800ep
