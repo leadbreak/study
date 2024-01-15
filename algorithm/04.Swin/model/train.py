@@ -224,6 +224,7 @@ def main(define_model:str='self',
     lrs = []
     best_loss = float('inf')
 
+    torch.backends.cudnn.benchmark = True
     # GradScaler 초기화
     scaler = GradScaler()
 

@@ -2,10 +2,6 @@ MODEL:
   TYPE: swinv2
   NAME: simmim_pretrain
   DROP_PATH_RATE: 0.0
-  SIMMIM:
-    NORM_TARGET:
-      ENABLE: True
-      PATCH_SIZE: 47
   SWIN:
     EMBED_DIM: 96
     DEPTHS: [ 2, 2, 6, 2 ]
@@ -25,4 +21,3 @@ TRAIN:
   BASE_LR: 1.4e-3
   WEIGHT_DECAY: 0.05
   CLIP_GRAD: 5
-TAG: simmim_pretrain__swinv2_tiny__img192_window6__800ep

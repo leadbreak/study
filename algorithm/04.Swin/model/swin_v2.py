@@ -231,7 +231,6 @@ class SwinTransformerBlock(nn.Module):
         shift_size (int): 윈도우 시프트 크기.
         mlp_ratio (float): MLP의 hidden dimension과 embedding dimension의 비율.
         qkv_bias (bool, optional): QKV에 바이어스 추가 여부.
-        qk_scale (float | None, optional): QK 스케일링 인자 (기본값: head_dim ** -0.5).
         drop (float, optional): 드롭아웃 확률.
         attn_drop (float, optional): 어텐션 드롭아웃 확률.
         drop_path (float, optional): 드롭 패스 확률.
@@ -239,7 +238,7 @@ class SwinTransformerBlock(nn.Module):
         norm_layer (nn.Module, optional): 정규화 레이어.
     """
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
+                 mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm, pretrained_window_size=0):
         super().__init__()
         self.dim = dim
@@ -383,7 +382,6 @@ class StageLayer(nn.Module):
         window_size (int): 윈도우의 크기
         mlp_ratio (float): MLP의 hidden dimension과 embedding dimension의 비율
         qkv_bias (bool, optional): QKV에 바이어스 추가 여부
-        qk_scale (float | None, optional): QK 스케일링 인자
         drop (float, optional): 드롭아웃 확률
         attn_drop (float, optional): 어텐션 드롭아웃 확률
         drop_path (float | tuple[float], optional): 드롭 패스 확률
@@ -391,7 +389,7 @@ class StageLayer(nn.Module):
         downsample (nn.Module | None, optional): 다운샘플링 레이어
     """
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
+                 mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=None, pretrained_window_size=0):
         super().__init__()
         self.dim = dim
@@ -405,7 +403,7 @@ class StageLayer(nn.Module):
                                  window_size=window_size,
                                  shift_size=0 if (i % 2 == 0) else window_size // 2,
                                  mlp_ratio=mlp_ratio,
-                                 qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                 qkv_bias=qkv_bias,
                                  drop=drop, attn_drop=attn_drop,
                                  drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
                                  norm_layer=norm_layer,
@@ -434,7 +432,7 @@ class SwinTransformerV2(nn.Module):
     """
     def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=100,
                  embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
+                 window_size=7, mlp_ratio=4., qkv_bias=True,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,
                  norm_layer=nn.LayerNorm, patch_norm=True, pretrained_window_sizes=[0,0,0,0],
                  ape=True,**kwargs):
@@ -470,7 +468,7 @@ class SwinTransformerV2(nn.Module):
                 num_heads=num_heads[i_stage],
                 window_size=window_size,
                 mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias, qk_scale=qk_scale,
+                qkv_bias=qkv_bias,
                 drop=drop_rate, attn_drop=attn_drop_rate,
                 drop_path=drop_path_rate,
                 norm_layer=norm_layer,
