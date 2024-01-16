@@ -120,7 +120,7 @@ class WindowAttention(nn.Module):
         relative_coords_w = torch.arange(-(self.window_size[1] - 1), self.window_size[1], dtype=torch.float32)
         relative_coords_table = torch.stack(torch.meshgrid([relative_coords_h, relative_coords_w])).permute(1, 2, 0).contiguous().unsqueeze(0)
 
-        # 윈도우 크기로 정규화
+        # 윈도우 크기로 정규화 -> 형태 조정 방법에 따라 필요없을수도?
         if self.pretrained_window_size > 0:
             relative_coords_table[:, :, :, 0] /= (self.pretrained_window_size - 1)
             relative_coords_table[:, :, :, 1] /= (self.pretrained_window_size - 1)
