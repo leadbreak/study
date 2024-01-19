@@ -1,9 +1,17 @@
-# study
-study for python, ML, DL, Data Science, etc
+## Table of Contents
+### algorithm
+- AI 관련 페이퍼를 읽고 모델링부터 훈련 및 파인튜닝에 이르기까지 디테일하게 구현 및 테스트하고 리뷰 with A100 80GB
+### dl_framework
+- AI Framework의 새로운 기능이나 언어에 대한 학습 및 정리
+### note
+- 인공지능 관련 모아서 정리해놓으면 좋을 것들을 요약
+### python
+- python의 여타 함수나 기능 중 유용한 것을 정리
+### streamlit
+- streamlit의 특정 기능 구현 방법과 관련된 내용을 정리
 
-## 공부한 것을 까먹지 않도록, 직접 해보고, 기록하고, 가르치기
 
-### Log
+## Log
 | Date | Content | Link |
 | ----------------- | ---- | ------------- |
 | 2023.10.23 | python lru_cache | [blog](https://brunch.co.kr/@bfcced03a6054df/8) [code](/python/lru_study.ipynb) |
@@ -14,4 +22,6 @@ study for python, ML, DL, Data Science, etc
 | 2023.11.11-23 | Transformer Basic | [blog](https://brunch.co.kr/@bfcced03a6054df/10) [code](/algorithm/01.transformer_introduce/01.transformer_introduce.ipynb)|
 | 2023.11.26-12.02 | Transformer Intermediate | [blog](https://brunch.co.kr/@bfcced03a6054df/11) [code1](/algorithm/02.transformer_intermediate/02.transformer_intermediate.ipynb) [code2](/algorithm/02.transformer_intermediate/02.translator_train.py)|
 | 2023.12.02-17 | Vision Transformer | [blog](https://brunch.co.kr/@bfcced03a6054df/12) [code](/algorithm/03.ViT/) |
-| 2023.12.15-31 | Swin Transformer | [blog](https://brunch.co.kr/@bfcced03a6054df/13) [code](/algorithm/04.Swin/) |
+| 2023.12.15-31 | Swin Transformer V1 | [blog](https://brunch.co.kr/@bfcced03a6054df/13) [code](/algorithm/04.Swin/) |
+| 2024.01.02-18 | Swin Transformer V2 | [blog](https://brunch.co.kr/@bfcced03a6054df/14) [code](/algorithm/04.Swin/) |
+| 2024.01.19 | Quick GeLU | [code](/note/quick_gelu.ipynb) |
