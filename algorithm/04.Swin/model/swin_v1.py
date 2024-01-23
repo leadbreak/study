@@ -212,8 +212,9 @@ class SwinTransformerBlock(nn.Module):
 
         assert 0 <= self.shift_size < self.window_size, "shift_size는 0과 window_size 사이의 값이어야 함"
 
-        # Layer 1: 정규화 레이어
+        # Layer 1: 정규화 레이어 + Layer Scale
         self.norm1 = norm_layer(dim)
+        self.ls1 = LayerScale(dim)
         
         # Layer 2: 윈도우 기반 멀티헤드 셀프 어텐션 레이어
         self.attn = WindowAttention(
@@ -223,8 +224,9 @@ class SwinTransformerBlock(nn.Module):
         # Layer 3: 드롭 패스 (스킵 커넥션의 드롭아웃)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
-        # Layer 4: 두 번째 정규화 레이어
+        # Layer 4: 두 번째 정규화 레이어 + Layer Scale
         self.norm2 = norm_layer(dim)
+        self.ls2 = LayerScale(dim)
 
         # Layer 5: MLP 레이어
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -286,8 +288,8 @@ class SwinTransformerBlock(nn.Module):
         x = x.view(B, H * W, C)
 
         # 잔차 연결 및 MLP
-        x = shortcut + self.drop_path(x)
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        x = shortcut + self.drop_path(self.ls1(x))
+        x = x + self.drop_path(self.ls2(self.mlp(self.norm2(x))))
 
         return x
 

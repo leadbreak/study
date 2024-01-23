@@ -206,7 +206,7 @@ class Mlp(nn.Module):
     def forward(self, x):
         x = self.fc1(x)
         x = self.act(x)
-        x = self.drop(x)
+        # x = self.drop(x)
         x = self.fc2(x)
         x = self.drop(x)
         return x
@@ -261,17 +261,19 @@ class SwinTransformerBlock(nn.Module):
             qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop,
             pretrained_window_size=pretrained_window_size)
 
-        # stochastic depth + res-post-norm 1
+        # stochastic depth + res-post-norm 1 + Layer Scale 1
         self.drop_path1 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm1 = norm_layer(dim)        
+        self.ls1 = LayerScale(dim)
 
         # Layer 5: MLP 레이어
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         
-        # stochastic depth + res-post-norm 2
+        # stochastic depth + res-post-norm 2 + layer scale 2
         self.drop_path2 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
+        self.ls2 = LayerScale(dim)
 
         # 어텐션 마스크 계산
         self._calculate_attn_mask()
@@ -328,8 +330,8 @@ class SwinTransformerBlock(nn.Module):
         x = x.view(B, H * W, C)
 
         # res-post-norm 적용 및 레이어 통과 후 잔차 연결
-        x = shortcut + self.norm1(self.drop_path1(x))
-        x = x + self.norm2(self.drop_path2(self.mlp(x)))
+        x = shortcut + self.norm1(self.drop_path1(self.ls1(x)))
+        x = x + self.norm2(self.drop_path2(self.ls2(self.mlp(x))))
 
         return x
 
@@ -435,7 +437,7 @@ class SwinTransformerV2(nn.Module):
                  window_size=7, mlp_ratio=4., qkv_bias=True,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,
                  norm_layer=nn.LayerNorm, patch_norm=True, pretrained_window_sizes=[0,0,0,0],
-                 ape=True,**kwargs):
+                 ape=True):
         super().__init__()
 
         self.num_classes = num_classes

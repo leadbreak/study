@@ -167,8 +167,8 @@ class TransformerEncoderLayer(nn.Module):
         self.ls1 = LayerScale(embed_dim)
         self.ls2 = LayerScale(embed_dim)
         
-        # self.drop_path = DropPath(dropout) if dropout > .0 else nn.Identity()
-        self.drop_path = nn.Identity()
+        self.drop_path = DropPath(dropout) if dropout > .0 else nn.Identity()
+        # self.drop_path = nn.Identity()
         self.estimate_params = estimate_params
         if estimate_params:
             self.attn = MHA(embed_dim, num_heads, dropout, fused_attention=fused_attention)
