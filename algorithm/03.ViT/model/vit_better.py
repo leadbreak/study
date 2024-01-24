@@ -179,7 +179,7 @@ class TransformerEncoderLayer(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, mlp_hidden_dim),
             nn.GELU(),
-            nn.Dropout(dropout),
+            # nn.Dropout(dropout),
             nn.LayerNorm(mlp_hidden_dim),
             nn.Linear(mlp_hidden_dim, embed_dim),
             nn.Dropout(dropout),
