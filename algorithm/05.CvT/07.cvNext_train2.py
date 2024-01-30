@@ -1,7 +1,5 @@
 '''
-100epoch 수행 기준 F1-Score 0.806451
-
-500epoch 수행 기준 F1-Score 0.90
+기존 코드에서 pointwise를 두 번하는 위치를 Q, K, V의 Projection 이후로 변경
 '''
 
 
@@ -155,22 +153,12 @@ class AttentionConv(nn.Module):
                 stride=stride,
                 bias=self.qkv_bias,
                 groups=dim)),
-            ('rearrange1', Rearrange('b c h w -> b h w c')),
+            ('rearrange1', Rearrange('b c h w -> b (h w) c')),
             ('ln', nn.LayerNorm(dim)),
-            ('rearrange2', Rearrange('b h w c -> b c h w')),
-            ('pointwise1', nn.Conv2d(
-                dim,
-                dim*4,
-                kernel_size=1,
-                bias=self.qkv_bias)),
+            ('pointwise1', nn.Linear(dim, dim*4,bias=self.qkv_bias)),
             ('activation', self.act_layer),
-            ('pointwise2', nn.Conv2d(
-                dim*4,
-                dim,
-                kernel_size=1,
-                bias=self.qkv_bias)),
-            ('rearrange3', Rearrange('b c h w -> b (h w) c')),
-
+            ('pointwise2', nn.Linear(dim*4, dim*1, bias=self.qkv_bias)),
+            ('ln', nn.LayerNorm(dim)),
         ]))
         
         return proj
@@ -178,8 +166,8 @@ class AttentionConv(nn.Module):
     def forward(self, x, h, w):
         x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
         
-        q = F.normalize(self.conv_proj_q(x), dim=-1)
-        k = F.normalize(self.conv_proj_k(x), dim=-1)
+        q = self.conv_proj_q(x)
+        k = self.conv_proj_k(x)
         v = self.conv_proj_v(x)
         
         q = rearrange(q, 'b t (h d) -> b h t d', h=self.num_heads)
@@ -416,11 +404,11 @@ spec = {
     'DIM_EMBED': [64,128,192,256],
     'DEPTH': [2,2,6,2],
     'NUM_HEADS': [4,8,12,16],   # original : [1,3,6]
-    'MLP_RATIO': [4.,4.,8.,4.],
+    'MLP_RATIO': [4.,4.,4.,4.],
     'QKV_BIAS': [True, True, True, True],
-    'DROP_RATE': [0.,0.,0.1,0.],
-    'ATTN_DROP_RATE': [0.,0.,0.1,0.],
-    'DROP_PATH_RATE': [0.1,0.1,0.3,0.1],
+    'DROP_RATE': [0.,0.,0.,0.],
+    'ATTN_DROP_RATE': [0.,0.,0.,0.],
+    'DROP_PATH_RATE': [0.1,0.1,0.1,0.1],
     'KERNEL_QKV': [3,3,3,3],
     'PADDING_Q': [1,1,1,1],
     'PADDING_KV': [1,1,1,1],
@@ -599,4 +587,3 @@ for i in range(epochs // 100):
 
     # 데이터프레임 출력
     print(f"\n[{i*100+100} epoch result]\n", performance_metrics)
-
