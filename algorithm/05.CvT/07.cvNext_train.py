@@ -416,11 +416,11 @@ spec = {
     'DIM_EMBED': [64,128,192,256],
     'DEPTH': [2,2,6,2],
     'NUM_HEADS': [4,8,12,16],   # original : [1,3,6]
-    'MLP_RATIO': [4.,4.,8.,4.],
+    'MLP_RATIO': [4.,4.,4.,4.],
     'QKV_BIAS': [True, True, True, True],
-    'DROP_RATE': [0.,0.,0.1,0.],
-    'ATTN_DROP_RATE': [0.,0.,0.1,0.],
-    'DROP_PATH_RATE': [0.1,0.1,0.3,0.1],
+    'DROP_RATE': [0.,0.,0.,0.],
+    'ATTN_DROP_RATE': [0.,0.,0.,0.],
+    'DROP_PATH_RATE': [0.1,0.1,0.1,0.1],
     'KERNEL_QKV': [3,3,3,3],
     'PADDING_Q': [1,1,1,1],
     'PADDING_KV': [1,1,1,1],
@@ -480,7 +480,7 @@ mixup_fn = Mixup(mixup_alpha=.8,
                 label_smoothing=.1,
                 num_classes=100)
 
-epochs = 100
+epochs = 500
 
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 optimizer = optim.AdamW(model.parameters())
