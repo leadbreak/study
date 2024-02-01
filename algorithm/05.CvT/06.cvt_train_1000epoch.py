@@ -1,9 +1,4 @@
-'''
-기존 코드에서 pointwise를 두 번하는 위치를 Q, K, V의 Projection 이후로 변경
-'''
-
-
-
+import numpy as np
 from collections import OrderedDict
 
 import torch
@@ -38,11 +33,11 @@ class ConvEmbed(nn.Module):
     '''
     
     def __init__(self,
-                 patch_size=11, # [11, 7, 7, 3]
+                 patch_size=7, # [7, 3, 3]
                  in_chans=3,   # [3, dim of stage1, dim of stage2]
-                 embed_dim=64, # [32, 64, 192, 384]
-                 stride=4,     # [6, 4, 4, 2]
-                 padding=2,    # [3, 2, 2, 1]
+                 embed_dim=64, # [64, 192, 384]
+                 stride=4,     # [4, 2, 2]
+                 padding=2,    # [2, 1, 1]
                  norm_layer=None):
         super().__init__()
         self.patch_size = to_2tuple(patch_size)
@@ -66,36 +61,11 @@ class ConvEmbed(nn.Module):
         x = rearrange(x, 'b (h w) c -> b c h w', h=H, w=W)
         return x
     
-class LayerNorm(nn.Module):
-    r""" LayerNorm that supports two data formats: channels_last (default) or channels_first. 
-    The ordering of the dimensions in the inputs. channels_last corresponds to inputs with 
-    shape (batch_size, height, width, channels) while channels_first corresponds to inputs 
-    with shape (batch_size, channels, height, width).
-    """
-    def __init__(self, normalized_shape, eps=1e-6, data_format="channels_last"):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(normalized_shape))
-        self.bias = nn.Parameter(torch.zeros(normalized_shape))
-        self.eps = eps
-        self.data_format = data_format
-        if self.data_format not in ["channels_last", "channels_first"]:
-            raise NotImplementedError 
-        self.normalized_shape = (normalized_shape, )
     
-    def forward(self, x):
-        if self.data_format == "channels_last":
-            return F.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps)
-        elif self.data_format == "channels_first":
-            u = x.mean(1, keepdim=True)
-            s = (x - u).pow(2).mean(1, keepdim=True)
-            x = (x - u) / torch.sqrt(s + self.eps)
-            x = self.weight[:, None, None] * x + self.bias[:, None, None]
-            return x
-        
 class AttentionConv(nn.Module):
     def __init__(self,
-                 dim=64,        # [32,64,192,384]
-                 num_heads=4,   # [1,3,6,9]
+                 dim=64,        # [64,192,384]
+                 num_heads=4,   # paper: [1,3,6], me: [4,8,16]
                  qkv_bias=False,
                  attn_drop=0.,
                  proj_drop=0.,
@@ -104,17 +74,14 @@ class AttentionConv(nn.Module):
                  padding_kv=1,
                  stride_q=1,
                  stride_kv=2,
-                 act_layer=nn.GELU,
                  **kwargs
                  ):
         super().__init__()
-        self.qkv_bias = qkv_bias
         self.stride_q = stride_q
         self.stride_kv = stride_kv
         self.dim = dim
         self.num_heads = num_heads        
         self.scale = dim ** -0.5
-        self.act_layer = act_layer()
         
         self.conv_proj_q = self._build_projection(dim,
                                                   kernel_size,
@@ -132,6 +99,10 @@ class AttentionConv(nn.Module):
                                                   padding_kv,
                                                   stride_kv,
                                                   )
+        
+        self.linear_proj_q = nn.Linear(dim, dim, bias=qkv_bias)
+        self.linear_proj_k = nn.Linear(dim, dim, bias=qkv_bias)
+        self.linear_proj_v = nn.Linear(dim, dim, bias=qkv_bias)
         
         self.attn_drop = nn.Dropout(attn_drop)
         self.linear_proj_last = nn.Linear(dim, dim)
@@ -151,14 +122,10 @@ class AttentionConv(nn.Module):
                 kernel_size=kernel_size,
                 padding=padding,
                 stride=stride,
-                bias=self.qkv_bias,
+                bias=False,
                 groups=dim)),
-            ('rearrange1', Rearrange('b c h w -> b (h w) c')),
-            ('ln', nn.LayerNorm(dim)),
-            ('pointwise1', nn.Linear(dim, dim*4,bias=self.qkv_bias)),
-            ('activation', self.act_layer),
-            ('pointwise2', nn.Linear(dim*4, dim*1, bias=self.qkv_bias)),
-            ('ln', nn.LayerNorm(dim)),
+            ('bn', nn.BatchNorm2d(dim)),
+            ('rearrange', Rearrange('b c h w -> b (h w) c'))
         ]))
         
         return proj
@@ -166,13 +133,13 @@ class AttentionConv(nn.Module):
     def forward(self, x, h, w):
         x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
         
-        q = self.conv_proj_q(x)
-        k = self.conv_proj_k(x)
+        q = F.normalize(self.conv_proj_q(x), dim=-1)
+        k = F.normalize(self.conv_proj_k(x), dim=-1)
         v = self.conv_proj_v(x)
         
-        q = rearrange(q, 'b t (h d) -> b h t d', h=self.num_heads)
-        k = rearrange(k, 'b t (h d) -> b h t d', h=self.num_heads)
-        v = rearrange(v, 'b t (h d) -> b h t d', h=self.num_heads)
+        q = rearrange(self.linear_proj_q(q), 'b t (h d) -> b h t d', h=self.num_heads)
+        k = rearrange(self.linear_proj_k(k), 'b t (h d) -> b h t d', h=self.num_heads)
+        v = rearrange(self.linear_proj_v(v), 'b t (h d) -> b h t d', h=self.num_heads)
         
         attn_score = torch.einsum('bhlk,bhtk->bhlt', [q, k]) * self.scale
         attn = self.attn_drop(F.softmax(attn_score, dim=-1))
@@ -217,7 +184,6 @@ class Block(nn.Module):
                                   qkv_bias=qkv_bias,
                                   attn_drop=attn_drop,
                                   proj_drop=drop,
-                                  act_layer=act_layer,
                                   **kwargs)        
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -226,6 +192,7 @@ class Block(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(dim, mlp_hidden_dim),
             act_layer(),
+            nn.LayerNorm(mlp_hidden_dim),
             nn.Linear(mlp_hidden_dim, dim),
             nn.Dropout(drop),
         )
@@ -238,6 +205,9 @@ class Block(nn.Module):
         x = x + self.drop_path(self.ls2(self.mlp(self.norm2(x))))
         return x
     
+
+
+
 class VisionTransformer(nn.Module):
     def __init__(self,
                  patch_size=16,
@@ -397,32 +367,31 @@ class QuickGELU(nn.Module):
         return x * torch.sigmoid(1.702 * x)
     
 spec = {
-    'NUM_STAGES': 4,
-    'PATCH_SIZE': [7,7,7,7],
-    'PATCH_STRIDE': [4,2,2,2],
-    'PATCH_PADDING': [2,3,3,3],
-    'DIM_EMBED': [64,128,192,256],
-    'DEPTH': [2,2,6,2],
-    'NUM_HEADS': [4,8,12,16],   # original : [1,3,6]
-    'MLP_RATIO': [4.,4.,4.,4.],
-    'QKV_BIAS': [True, True, True, True],
-    'DROP_RATE': [0.,0.,0.,0.],
-    'ATTN_DROP_RATE': [0.,0.,0.,0.],
-    'DROP_PATH_RATE': [0.1,0.1,0.1,0.1],
-    'KERNEL_QKV': [3,3,3,3],
-    'PADDING_Q': [1,1,1,1],
-    'PADDING_KV': [1,1,1,1],
-    'STRIDE_Q': [1,1,1,1],
-    'STRIDE_KV': [2,2,2,2],
+    'NUM_STAGES': 3,
+    'PATCH_SIZE': [7,3,3],
+    'PATCH_STRIDE': [4,2,2],
+    'PATCH_PADDING': [2,1,1],
+    'DIM_EMBED': [64,192,384],
+    'DEPTH': [1,2,10],
+    'NUM_HEADS': [4,8,12],   # original : [1,3,6]
+    'MLP_RATIO': [4.,4.,4.],
+    'QKV_BIAS': [True, True, True],
+    'DROP_RATE': [0.,0.,0.1],
+    'ATTN_DROP_RATE': [0.,0.,0.1],
+    'DROP_PATH_RATE': [0.1,0.1,0.1],
+    'KERNEL_QKV': [3,3,3],
+    'PADDING_Q': [1,1,1],
+    'PADDING_KV': [1,1,1],
+    'STRIDE_Q': [1,1,1],
+    'STRIDE_KV': [2,2,2],
 }
+
 
 model = ConvolutionalVisionTransformer(act_layer=QuickGELU, spec=spec)
 
 from torchsummary import summary
 
-model_summary = summary(model.cuda(), (3, 224, 224))
-
-print(model_summary)
+print(summary(model.cuda(), (3, 224, 224)))
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
@@ -430,7 +399,7 @@ train_transform = transforms.Compose([
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    transforms.RandomErasing(p=1., scale=(0.02, 0.33)),
+    transforms.RandomErasing(p=1.0, scale=(0.02, 0.33)),
 ])
 
 test_transform = transforms.Compose([
@@ -454,11 +423,13 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-device = 'cuda:3'
-max_norm = 5.0 
+device = 'cuda:2'
+max_norm = 5.0 # paper : 100 with G variants
 
 model.to(device)
-model_path = '../models/cvt/model_revision.pth'
+model_path = '../models/cvt/model.pth'
+
+torch.backends.cudnn.benchmark = True
 
 mixup_fn = Mixup(mixup_alpha=.8, 
                 cutmix_alpha=1., 
@@ -468,10 +439,11 @@ mixup_fn = Mixup(mixup_alpha=.8,
                 label_smoothing=.1,
                 num_classes=100)
 
-epochs = 100
+epochs = 1000
 
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
-optimizer = optim.AdamW(model.parameters())
+
+optimizer = optim.AdamW(model.parameters(), weight_decay=0.005)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
 scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
@@ -541,8 +513,6 @@ for i in range(epochs // 100):
         if total_loss < best_loss:
             best_loss = total_loss
             vit_save = True
-            if vit_save:
-                torch.save(model.state_dict(), model_path)
 
         epoch_duration = time.time() - start_time
         training_time += epoch_duration
@@ -587,3 +557,4 @@ for i in range(epochs // 100):
 
     # 데이터프레임 출력
     print(f"\n[{i*100+100} epoch result]\n", performance_metrics)
+
