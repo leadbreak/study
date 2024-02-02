@@ -480,7 +480,7 @@ mixup_fn = Mixup(mixup_alpha=.8,
                 label_smoothing=.1,
                 num_classes=100)
 
-epochs = 500
+epochs = 1000
 
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 optimizer = optim.AdamW(model.parameters())

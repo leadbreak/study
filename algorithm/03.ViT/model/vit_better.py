@@ -80,6 +80,7 @@ class MHA(nn.Module):
 
         # 쿼리, 키, 값에 대한 결합된 선형 변환
         self.fc_qkv = nn.Linear(d_model, d_model * 3, bias=qkv_bias)
+        
         self.fc_o = nn.Linear(d_model, d_model)
         
         # normalize
@@ -93,6 +94,9 @@ class MHA(nn.Module):
     def forward(self, x):
         # batch_size = x.shape[0]
         B, N, C = x.shape
+        
+        # 1. positional embedding에 좌우된다
+        # 2. x의 범주가 너무 작아서 
 
         # 결합된 선형 변환 수행
         qkv = self.fc_qkv(x)
