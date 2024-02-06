@@ -416,9 +416,9 @@ spec = {
     'DROP_RATE': [0.,0.,0.,0.],
     'ATTN_DROP_RATE': [0.,0.,0.,0.],
     'DROP_PATH_RATE': [0.1,0.1,0.1,0.1],
-    'KERNEL_QKV': [3,3,3,3],
-    'PADDING_Q': [1,1,1,1],
-    'PADDING_KV': [1,1,1,1],
+    'KERNEL_QKV': [7,7,7,7],
+    'PADDING_Q': [3,3,3,3],
+    'PADDING_KV': [3,3,3,3],
     'STRIDE_Q': [1,1,1,1],
     'STRIDE_KV': [2,2,2,2],
 }
@@ -461,7 +461,7 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-device = 'cuda:3'
+device = 'cuda:2'
 max_norm = 3.0 
 
 model.to(device)

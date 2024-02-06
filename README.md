@@ -27,4 +27,4 @@
 | 2024.01.19 | Quick GeLU | [code](/note/quick_gelu.ipynb) |
 | 2024.01.20-02.08 | Convolutional Vision Transformer | [blog](https://brunch.co.kr/@bfcced03a6054df/15) [code](/algorithm/05.CvT/) |
 | 2024.01.25 | 1x1 Conv vs Linear | [code](/note/1x1conv.ipynb) |
-| 2024.02.05- | ConvNext | [code](/algorithm/06.ConvNext/) |
+| 2024.02.05- | ConvNext V1 | [code](/algorithm/06.ConvNext/) |
