@@ -315,7 +315,7 @@ val_losses = []
 lrs = []
 best_loss = float('inf')
 
-vit_save = False
+model_save = False
 vit.to(device)
 
 # GradScaler 초기화
@@ -365,7 +365,7 @@ for epoch in range(epochs):
         # 모델 저장
         if val_loss < best_loss:
             best_loss = val_loss
-            vit_save = True
+            model_save = True
             torch.save(vit.state_dict(), model_path)
 
     epoch_duration = time.time() - start_time
@@ -373,10 +373,10 @@ for epoch in range(epochs):
     
     text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
     
-    if vit_save:
+    if model_save:
         text += f' - model saved!'
         print(text)
-        vit_save = False
+        model_save = False
     # elif epoch % 5 == 4 :
     #     print(text)
     else : 

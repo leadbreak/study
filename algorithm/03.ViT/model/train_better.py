@@ -154,7 +154,7 @@ def main(data_dir:str='../data/sports',
             # 모델 저장
             if epoch_loss < best_loss:
                 best_loss = epoch_loss
-                vit_save = True
+                model_save = True
                 torch.save(model.state_dict(), model_path)
                 
             epoch_duration = time.time() - start_time
@@ -162,9 +162,9 @@ def main(data_dir:str='../data/sports',
             
             text = f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
             
-            if vit_save:
+            if model_save:
                 text += f' - model saved!'
-                vit_save = False    
+                model_save = False    
             
         elif train_option == 'holdout':
             model.eval()
@@ -182,7 +182,7 @@ def main(data_dir:str='../data/sports',
             # 모델 저장
             if val_loss < best_loss:
                 best_loss = val_loss
-                vit_save = True
+                model_save = True
                 torch.save(model.state_dict(), model_path)
 
             epoch_duration = time.time() - start_time
@@ -190,9 +190,9 @@ def main(data_dir:str='../data/sports',
             
             text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
             
-            if vit_save:
+            if model_save:
                 text += f' - model saved!'
-                vit_save = False
+                model_save = False
 
         click.echo(text)
             

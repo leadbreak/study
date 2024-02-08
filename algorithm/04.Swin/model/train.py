@@ -268,8 +268,8 @@ def main(define_model:str='self',
             if epoch_loss < best_loss:
                 
                 best_loss = epoch_loss
-                vit_save = model_save
-                if vit_save:
+                model_save = model_save
+                if model_save:
                     torch.save(model.state_dict(), model_path)
                 
             epoch_duration = time.time() - start_time
@@ -277,9 +277,9 @@ def main(define_model:str='self',
             
             text = f'\tLoss: {epoch_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
             
-            if vit_save:
+            if model_save:
                 text += f' - model saved!'
-                vit_save = False    
+                model_save = False    
             
         elif train_option == 'holdout':
             model.eval()
@@ -297,8 +297,8 @@ def main(define_model:str='self',
             # 모델 저장
             if val_loss < best_loss:
                 best_loss = val_loss
-                vit_save = model_save
-                if vit_save:
+                model_save = model_save
+                if model_save:
                     torch.save(model.state_dict(), model_path)
 
             epoch_duration = time.time() - start_time
@@ -306,9 +306,9 @@ def main(define_model:str='self',
             
             text = f'\tLoss: {epoch_loss}, Val Loss: {val_loss}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
             
-            if vit_save:
+            if model_save:
                 text += f' - model saved!'
-                vit_save = False
+                model_save = False
 
         click.echo(text)
             

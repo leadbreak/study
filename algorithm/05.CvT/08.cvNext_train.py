@@ -545,8 +545,8 @@ for i in range(epochs // 100):
         total_loss = val_loss + epoch_loss
         if total_loss < best_loss:
             best_loss = total_loss
-            vit_save = True
-            if vit_save:
+            model_save = True
+            if model_save:
                 torch.save(model.state_dict(), model_path)
 
         epoch_duration = time.time() - start_time
@@ -554,9 +554,9 @@ for i in range(epochs // 100):
         
         text = f'\tLoss: {epoch_loss:.4f}, Val_Loss: {val_loss:.4f}, Total Mean Loss: {total_loss/2:.4f}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
         
-        if vit_save:
+        if model_save:
             text += f' - model saved!'
-            vit_save = False
+            model_save = False
 
         print(text)
 
