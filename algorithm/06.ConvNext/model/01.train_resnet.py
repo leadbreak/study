@@ -7,8 +7,12 @@ from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
 
 from torch.cuda.amp import autocast, GradScaler
+from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm
 import time
+
+from timm.data import Mixup
+import transformers
 
 from sklearn.metrics import confusion_matrix
 import pandas as pd
@@ -23,14 +27,13 @@ model_summary = summary(model.cuda(), (3, 224, 224))
 
 print(model_summary)
 
-
 # Transforms 정의하기
 train_transform = transforms.Compose([
     transforms.RandomResizedCrop(224, scale=(0.8,1), interpolation=transforms.InterpolationMode.LANCZOS),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    # transforms.RandomErasing(p=1., scale=(0.02, 0.33)),
+    transforms.RandomErasing(p=1., scale=(0.02, 0.33)),
 ])
 
 test_transform = transforms.Compose([
@@ -54,17 +57,30 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-device = 'cuda:3'
+device = 'cuda:2'
+max_norm = 3.0 
 
 model.to(device)
-model_path = '../../models/convnext/resnet.pth'
+model_path = '../models/cvt/model_revision.pth'
+
+mixup_fn = Mixup(mixup_alpha=.8, 
+                cutmix_alpha=1., 
+                prob=1., 
+                switch_prob=0.5, 
+                mode='batch',
+                label_smoothing=.1,
+                num_classes=100)
 
 epochs = 100
 
-criterion = nn.CrossEntropyLoss()
-# optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-optimizer = optim.Adam(model.parameters())
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=14, gamma=0.5)
+criterion = nn.CrossEntropyLoss(label_smoothing=0.)
+optimizer = optim.AdamW(model.parameters())
+warmup_steps = int(len(train_loader)*(epochs)*0.1)
+train_steps = len(train_loader)*(epochs)
+scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
+                                                        num_warmup_steps=warmup_steps, 
+                                                        num_training_steps=train_steps,
+                                                        num_cycles=0.5)
 
 training_time = 0
 losses = []
@@ -84,6 +100,7 @@ for i in range(epochs // 100):
         
         for _, data in pbar:
             inputs, labels = data[0].to(device), data[1].to(device)
+            inputs, labels = mixup_fn(inputs, labels)
             optimizer.zero_grad()
 
             # AutoCast 적용
@@ -93,6 +110,10 @@ for i in range(epochs // 100):
                 
             # 스케일링된 그라디언트 계산
             scaler.scale(loss).backward()
+
+            # 그라디언트 클리핑 전에 스케일링 제거
+            scaler.unscale_(optimizer)
+            clip_grad_norm_(model.parameters(), max_norm=max_norm)
 
             # 옵티마이저 스텝 및 스케일러 업데이트
             scaler.step(optimizer)
@@ -122,9 +143,9 @@ for i in range(epochs // 100):
         total_loss = val_loss + epoch_loss
         if total_loss < best_loss:
             best_loss = total_loss
-            model_save = True
-            # if model_save:
-            #     torch.save(model.state_dict(), model_path)
+            model_save = False
+            if model_save:
+                torch.save(model.state_dict(), model_path)
 
         epoch_duration = time.time() - start_time
         training_time += epoch_duration

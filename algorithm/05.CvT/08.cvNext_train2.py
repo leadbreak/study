@@ -1,9 +1,6 @@
 '''
 1,000epoch 中 900 : 0.9329
 '''
-
-
-
 from collections import OrderedDict
 
 import torch
