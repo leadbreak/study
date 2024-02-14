@@ -18,10 +18,10 @@ from sklearn.metrics import confusion_matrix
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
-from resnet import resnet50
+from resnet2_macro import resnet50_stages
 from torchsummary import summary
 
-model = resnet50()
+model = resnet50_stages()
 
 model_summary = summary(model.cuda(), (3, 224, 224))
 
@@ -57,7 +57,7 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-device = 'cuda:2'
+device = 'cuda:3'
 max_norm = 3.0 
 
 model.to(device)

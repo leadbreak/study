@@ -33,39 +33,61 @@ class Bottleneck(nn.Module):
         out = self.conv3(out)
         out = self.bn3(out)
 
-        if self.downsample is not None:
-            identity = self.downsample(x)
-
         out += identity
         out = self.relu(out)
 
         return out
 
 class ResNet(nn.Module):
-    def __init__(self, block, layers, num_classes=100):
+    def __init__(self, 
+                 block, 
+                 dims=[64,128,256,512],
+                 layers=[3,3,9,3],
+                 num_classes=100):
         super(ResNet, self).__init__()
         self.in_channels = 64
+        
+        # downsampling layers
+        self.downsample_layers = nn.ModuleList()
+        patchify_stem = nn.Sequential(
+                            nn.Conv2d(3, dims[0], kernel_size=4, stride=4),
+                            nn.BatchNorm2d(dims[0])
+                        )
+        self.downsample_layers.append(patchify_stem)
+        
+        for i in range(3):
+            downsample_layer = nn.Sequential(
+                                nn.Conv2d(dims[i], dims[i+1], kernel_size=2, stride=2),
+                                nn.BatchNorm2d(dims[i+1])
+                                )
+            self.downsample_layers.append(downsample_layer)
+            
+        # stage layer
+        self.stages = nn.ModuleList()
+        for i in range(4):
+            stage = nn.Sequential(
+                        *[block(dims[i]) for _ in range(layers[i])]
+                    )
+            
+            self.stages.append(stage)       
+        
+        
+        
         # 초기 Convolution과 Max Pooling Layer
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.conv1 = nn.Conv2d(3, self.in_channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.in_channels)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         # Residual Blocks
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer1 = self._make_layer(block, dims[0], layers[0])
+        self.layer2 = self._make_layer(block, dims[1], layers[1], stride=2)
+        self.layer3 = self._make_layer(block, dims[2], layers[2], stride=2)
+        self.layer4 = self._make_layer(block, dims[3], layers[3], stride=2)
         # 평균 풀링과 Fully Connected Layer
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.fc = nn.Linear(self.in_channels*8 * block.expansion, num_classes)
 
     def _make_layer(self, block, out_channels, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.in_channels != out_channels * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv2d(self.in_channels, out_channels * block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_channels * block.expansion),
-            )
 
         layers = []
         layers.append(block(self.in_channels, out_channels, stride, downsample))
@@ -96,8 +118,5 @@ class ResNet(nn.Module):
 def resnet50():
     return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=100)
 
-def resnet101():
-    return ResNet(Bottleneck, [3, 4, 23, 3], num_classes=100)
-
-def resnet152():
-    return ResNet(Bottleneck, [3, 8, 36, 3], num_classes=100)
+def resnet50_stages():
+    return ResNet(Bottleneck, [3, 3, 9, 3], num_classes=100)
