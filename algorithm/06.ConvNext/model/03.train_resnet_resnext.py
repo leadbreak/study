@@ -18,8 +18,11 @@ from sklearn.metrics import confusion_matrix
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
-from resnet2_macro import resnet50
+from resnet3_resnext import resnet50
 from torchsummary import summary
+
+print("macro train 대기 중...")
+time.sleep(5000)
 
 model = resnet50()
 
@@ -68,7 +71,7 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-device = 'cuda:2'
+device = 'cuda:3'
 max_norm = 3.0 
 
 model.to(device)

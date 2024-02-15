@@ -9,23 +9,23 @@ class Bottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, shortcut=None):
         super(Bottleneck, self).__init__()
         
-        # 첫 번째 1x1 Convolution
+        # pointwise convolution
         self.block1 = nn.Sequential(OrderedDict([
-            ('conv1', nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)),
+            ('pwconv1', nn.Conv2d(in_channels, out_channels, kernel_size=1)),
             ('bn1', nn.BatchNorm2d(out_channels)),
             ('relu1', nn.ReLU(inplace=True))
         ]))
         
-        # 두 번째 3x3 Convolution, stride는 주어진 값 사용
+        # 3x3 depthwise convolution(more cardinality)
         self.block2 = nn.Sequential(OrderedDict([
-            ('conv2', nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)),
+            ('dwconv', nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, groups=out_channels)),
             ('bn2', nn.BatchNorm2d(out_channels)),
             ('relu2', nn.ReLU(inplace=True))
         ]))
 
-        # 세 번째 1x1 Convolution, 채널 확장
+        # pointwise convolution
         self.block3 = nn.Sequential(OrderedDict([
-            ('conv3', nn.Conv2d(out_channels, out_channels * self.expansion, kernel_size=1, bias=False)),
+            ('pwconv2', nn.Conv2d(out_channels, out_channels * self.expansion, kernel_size=1)),
             ('bn3', nn.BatchNorm2d(out_channels * self.expansion)),
         ]))
         
@@ -109,4 +109,4 @@ class ResNet(nn.Module):
         return x
     
 def resnet50():
-    return ResNet(Bottleneck, dims=[64,128,256,512], depths=[3, 3, 9, 3], num_classes=100)
+    return ResNet(Bottleneck, dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100)

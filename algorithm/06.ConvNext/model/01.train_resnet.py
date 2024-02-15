@@ -23,6 +23,17 @@ from torchsummary import summary
 
 model = resnet50()
 
+# 총 파라미터 수 계산
+total_params = sum(p.numel() for p in model.parameters())
+
+# 학습 가능한 파라미터 수 계산
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+print('='*80)
+print(f"\nTotal Parameters: {total_params:,}")
+print(f"Trainable Parameters: {trainable_params:,}\n")
+print('='*80)
+
 model_summary = summary(model.cuda(), (3, 224, 224))
 
 print(model_summary)
