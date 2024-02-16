@@ -18,7 +18,7 @@ from sklearn.metrics import confusion_matrix
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
-from resnet3_resnext import resnet50
+from resnet5_large import resnet50
 from torchsummary import summary
 
 model = resnet50()

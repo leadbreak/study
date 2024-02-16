@@ -3,22 +3,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 
-class Bottleneck(nn.Module):
-    expansion = 4  # 확장 비율, Bottleneck 구조에서 마지막 Conv Layer의 출력 채널이 입력 채널의 4배가 됨
+class invertedBottleneck(nn.Module):
+    expansion = 4  # 확장 비율
 
     def __init__(self, dim):
-        super(Bottleneck, self).__init__()
+        super(invertedBottleneck, self).__init__()
         
-        # move up depthwise conv with larger kernel
+        # pointwise convolution(make wider)
         self.block1 = nn.Sequential(OrderedDict([
-            ('dwconv', nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)),
-            ('bn1', nn.BatchNorm2d(dim)),
+            ('pwconv1', nn.Conv2d(dim, dim*self.expansion, kernel_size=1)),
+            ('bn1', nn.BatchNorm2d(dim*self.expansion)),
             ('relu1', nn.ReLU(inplace=True))
         ]))
         
-        # first pointwise convolution(make wider)
+        # 3x3 depthwise convolution(more cardinality)
         self.block2 = nn.Sequential(OrderedDict([
-            ('pwconv1', nn.Conv2d(dim, dim*self.expansion, kernel_size=1)),
+            ('dwconv', nn.Conv2d(dim*self.expansion, dim*self.expansion, kernel_size=3, padding=1, groups=dim*self.expansion)),
             ('bn2', nn.BatchNorm2d(dim*self.expansion)),
             ('relu2', nn.ReLU(inplace=True))
         ]))
@@ -28,7 +28,7 @@ class Bottleneck(nn.Module):
             ('pwconv2', nn.Conv2d(dim*self.expansion, dim, kernel_size=1)),
             ('bn3', nn.BatchNorm2d(dim)),
         ]))
-        
+
         self.relu3 = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -57,7 +57,7 @@ class ResNet(nn.Module):
             ('stem_relu', nn.ReLU(inplace=True)),               
         ]))
         
-        # downsample layers for residual
+        # downsample layers
         self.downsample_layers = nn.ModuleList()    
         self.downsample_layers.append(self.stem)    
         
@@ -96,4 +96,4 @@ class ResNet(nn.Module):
         return x
     
 def resnet50():
-    return ResNet(Bottleneck, dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100)
+    return ResNet(invertedBottleneck, dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100)
