@@ -19,13 +19,11 @@ class LayerNorm(nn.Module):
         self.bias = nn.Parameter(torch.zeros(normalized_shape))
         self.eps = eps
 
-        self.normalized_shape = (normalized_shape, )
-    
     def forward(self, x):
-        u = x.mean(1, keepdim=True)
-        s = (x - u).pow(2).mean(1, keepdim=True)
-        x = (x - u) / torch.sqrt(s + self.eps)
-        x = self.weight[:, None, None] * x + self.bias[:, None, None]
+        mean = x.mean(dim=1, keepdim=True)
+        std = x.var(dim=1, keepdim=True, unbiased=False).sqrt()
+        x = (x - mean) / (std + self.eps)
+        x = x * self.weight[:, None, None] + self.bias[:, None, None]
         return x
 
 def quality_matrix(k, alpha=0.3):
@@ -60,7 +58,7 @@ class Block(nn.Module):
         self.pwconv2 = nn.Conv2d(dim*4, dim, kernel_size=1)
         
         # layerscale
-        self.gamma = nn.Parameter(layerscale_init_value * torch.ones((dim)), requires_grad=True) if layerscale_init_value > 0 else None
+        self.gamma = nn.Parameter(layerscale_init_value * torch.ones((1, dim, 1, 1)), requires_grad=True) if layerscale_init_value > 0 else None
         # droppath(stochastic depth)
         self.droppath = DropPath(dp_rate) if dp_rate > 0. else nn.Identity()      
 
@@ -79,7 +77,7 @@ class Block(nn.Module):
         
         return x
 
-class ResNet(nn.Module):
+class convNext(nn.Module):
     def __init__(self, 
                  block, 
                  dims=[96,192,384,768],
@@ -88,7 +86,7 @@ class ResNet(nn.Module):
                  droppath=0.1,
                  num_classes=100,
                  optimal=False):
-        super(ResNet, self).__init__()
+        super(convNext, self).__init__()
         
         # Patchify Stem
         self.stem = nn.Sequential(OrderedDict([
@@ -102,7 +100,7 @@ class ResNet(nn.Module):
         
         for i in range(3):
             downsample_layer = nn.Sequential(OrderedDict([
-                                (f'ds_ln{i}', LayerNorm(dims[i+1])),
+                                (f'ds_ln{i}', LayerNorm(dims[i])),
                                 (f'ds_conv{i+1}', nn.Conv2d(dims[i], dims[i+1], kernel_size=2, stride=2)),                                
                                 ]))
             self.downsample_layers.append(downsample_layer)
@@ -123,9 +121,9 @@ class ResNet(nn.Module):
         
         # noisy-nn
         if optimal:
-            linear_transform_noise = optimal_quality_matrix(self.stage3_res)
+            linear_transform_noise = optimal_quality_matrix(7) # last stage res
         else:
-            linear_transform_noise = quality_matrix(self.stage3_res)
+            linear_transform_noise = quality_matrix(7)
         self.noisynn = nn.Parameter(linear_transform_noise, requires_grad=False)            
 
         # 평균 풀링과 Fully Connected Layer
@@ -150,5 +148,5 @@ class ResNet(nn.Module):
         x = self.fc(x)
         return x
     
-def resnet50():
-    return ResNet(Block, dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100)
+def load_convNext(**params):
+    return convNext(Block, dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100, **params)

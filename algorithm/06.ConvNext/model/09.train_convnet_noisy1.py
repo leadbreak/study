@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 
 import torch.optim as optim
 from torchvision import transforms
@@ -12,16 +11,18 @@ from tqdm import tqdm
 import time
 
 from timm.data import Mixup
+from timm.utils import ModelEma
+from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 import transformers
 
 from sklearn.metrics import confusion_matrix
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
-from resnet5_large import resnet50
+from noisy_convnext import load_convNext
 from torchsummary import summary
 
-model = resnet50()
+model = load_convNext()
 
 # 총 파라미터 수 계산
 total_params = sum(p.numel() for p in model.parameters())
@@ -35,8 +36,10 @@ print(f"Trainable Parameters: {trainable_params:,}\n")
 print('='*80)
 
 model_summary = summary(model.cuda(), (3, 224, 224))
-
 print(model_summary)
+
+print("\n이전 학습 종료 대기 중...")
+time.sleep(120000+600)
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
@@ -72,19 +75,36 @@ device = 'cuda:3'
 max_norm = 3.0 
 
 model.to(device)
+
+model_ema = None
+ema_active = True
+if ema_active:
+    model_ema = ModelEma(
+        model,
+        decay=0.9999,
+        device='',
+        resume=''        
+    )
+    print(f"Using EMA with decay = {0.9999}")
+
 model_path = '../models/cvt/model_revision.pth'
 
-mixup_fn = Mixup(mixup_alpha=.8, 
-                cutmix_alpha=1., 
-                prob=1., 
-                switch_prob=0.5, 
-                mode='batch',
-                label_smoothing=.1,
-                num_classes=100)
+mixup = True
+if mixup :
+    mixup_fn = Mixup(mixup_alpha=.8, 
+                    cutmix_alpha=1., 
+                    prob=1., 
+                    switch_prob=0.5, 
+                    mode='batch',
+                    label_smoothing=.1,
+                    num_classes=100)
+    
+    criterion = SoftTargetCrossEntropy()
+else :
+    criterion = LabelSmoothingCrossEntropy(.1)
 
-epochs = 500
+epochs = 200
 
-criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 optimizer = optim.AdamW(model.parameters())
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
@@ -129,6 +149,11 @@ for i in range(epochs // 100):
             # 옵티마이저 스텝 및 스케일러 업데이트
             scaler.step(optimizer)
             scaler.update()
+            
+            # EMA 모델 업데이트
+            if model_ema is not None:
+                model_ema.update(model)
+                
             scheduler.step()
                 
             lr = optimizer.param_groups[0]["lr"]

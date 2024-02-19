@@ -21,8 +21,6 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from resnet6_micro import resnet50
 from torchsummary import summary
 
-time.sleep(7200)
-
 model = resnet50()
 
 # 총 파라미터 수 계산
@@ -39,6 +37,9 @@ print('='*80)
 model_summary = summary(model.cuda(), (3, 224, 224))
 
 print(model_summary)
+
+print("\n이전 학습 종료 대기 중...")
+time.sleep(30000+600)
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
