@@ -12,16 +12,19 @@ from tqdm import tqdm
 import time
 
 from timm.data import Mixup
+from timm.utils import ModelEmaV3
+from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 import transformers
 
 from sklearn.metrics import confusion_matrix
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
-
-from resnet4_inverted import resnet50
 from torchsummary import summary
 
-model = resnet50()
+from convnext_official import convnext_tiny
+
+model = convnext_tiny()
+print(model)
 
 # 총 파라미터 수 계산
 total_params = sum(p.numel() for p in model.parameters())
@@ -35,8 +38,6 @@ print(f"Trainable Parameters: {trainable_params:,}\n")
 print('='*80)
 
 model_summary = summary(model.cuda(), (3, 224, 224))
-
-print(model_summary)
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
@@ -72,20 +73,38 @@ device = 'cuda:3'
 max_norm = 3.0 
 
 model.to(device)
+
+model_ema = None
+ema_active = True
+if ema_active:
+    ema_decay = 0.9999
+    model_ema = ModelEmaV3(
+        model,
+        decay=ema_decay,
+    )
+    print(f"Using EMA with decay = {ema_decay}")
+
 model_path = ''
 
-mixup_fn = Mixup(mixup_alpha=.8, 
-                cutmix_alpha=1., 
-                prob=1., 
-                switch_prob=0.5, 
-                mode='batch',
-                label_smoothing=.1,
-                num_classes=100)
-
-epochs = 200
-
+mixup = True
+if mixup :
+    mixup_fn = Mixup(mixup_alpha=.8, 
+                    cutmix_alpha=1., 
+                    prob=1., 
+                    switch_prob=0.5, 
+                    mode='batch',
+                    label_smoothing=.1,
+                    num_classes=100)
+    
+    criterion = SoftTargetCrossEntropy()
+else :
+    criterion = LabelSmoothingCrossEntropy(.1)
+    
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
-optimizer = optim.AdamW(model.parameters())
+
+epochs = 100
+
+optimizer = optim.AdamW(model.parameters(), lr=4e-3, weight_decay=0.05)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
 scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
@@ -129,6 +148,11 @@ for i in range(epochs // 100):
             # 옵티마이저 스텝 및 스케일러 업데이트
             scaler.step(optimizer)
             scaler.update()
+            
+            # EMA 모델 업데이트
+            if model_ema is not None:
+                model_ema.update(model)
+                
             scheduler.step()
                 
             lr = optimizer.param_groups[0]["lr"]

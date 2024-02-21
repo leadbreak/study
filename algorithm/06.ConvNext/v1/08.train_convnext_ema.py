@@ -1,5 +1,5 @@
 import torch
-
+import torch.nn as nn
 import torch.optim as optim
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
@@ -11,7 +11,7 @@ from tqdm import tqdm
 import time
 
 from timm.data import Mixup
-from timm.utils import ModelEma
+from timm.utils import ModelEmaV3
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 import transformers
 
@@ -39,11 +39,11 @@ model_summary = summary(model.cuda(), (3, 224, 224))
 print(model_summary)
 
 print("\n이전 학습 종료 대기 중...")
-time.sleep(90000+600)
+time.sleep(60000+600)
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(224, scale=(0.6,1), interpolation=transforms.InterpolationMode.LANCZOS),
+    transforms.RandomResizedCrop(224, scale=(0.6,1), interpolation=transforms.InterpolationMode.BICUBIC),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -56,7 +56,7 @@ test_transform = transforms.Compose([
 ])
 
 data_dir = '../../data/sports'
-batch_size = 1024
+batch_size = 800
 
 train_path = data_dir+'/train'
 valid_path = data_dir+'/valid'
@@ -79,15 +79,14 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    model_ema = ModelEma(
+    ema_decay = 0.9999
+    model_ema = ModelEmaV3(
         model,
-        decay=0.9999,
-        device='',
-        resume=''        
+        decay=ema_decay,
     )
-    print(f"Using EMA with decay = {0.9999}")
+    print(f"Using EMA with decay = {ema_decay}")
 
-model_path = '../models/cvt/model_revision.pth'
+model_path = ''
 
 mixup = True
 if mixup :
@@ -103,9 +102,10 @@ if mixup :
 else :
     criterion = LabelSmoothingCrossEntropy(.1)
 
-epochs = 200
+criterion2 = nn.CrossEntropyLoss()
+epochs = 500
 
-optimizer = optim.AdamW(model.parameters())
+optimizer = optim.AdamW(model.parameters(), lr=4e-3, weight_decay=0.05)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
 scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
@@ -169,7 +169,7 @@ for i in range(epochs // 100):
             for data in valid_loader:
                 inputs, labels = data[0].to(device), data[1].to(device)
                 outputs = model(inputs)
-                loss = criterion(outputs, labels)
+                loss = criterion2(outputs, labels)
                 val_loss += loss.item()
                 
         val_loss /= len(valid_loader)
