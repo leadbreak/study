@@ -4,7 +4,7 @@
 ### dl_framework
 - AI Framework의 새로운 기능이나 언어에 대한 학습 및 정리
 ### note
-- 인공지능 관련 모아서 정리해놓으면 좋을 것들을 요약
+- 인공지능 관련 단일 개념에 대해 정리
 ### python
 - python의 여타 함수나 기능 중 유용한 것을 정리
 ### streamlit
@@ -26,5 +26,10 @@
 | 2024.01.02-18 | Swin Transformer V2 | [blog](https://brunch.co.kr/@bfcced03a6054df/14) [code](/algorithm/04.Swin/) |
 | 2024.01.19 | Quick GeLU | [code](/note/quick_gelu.ipynb) |
 | 2024.01.20-02.08 | Convolutional Vision Transformer | [blog](https://brunch.co.kr/@bfcced03a6054df/15) [code](/algorithm/05.CvT/) |
-| 2024.01.25 | 1x1 Conv vs Linear | [code](/note/1x1conv.ipynb) |
-| 2024.02.05- | ConvNext V1 | [code](/algorithm/06.ConvNext/) |
+| 2024.01.25 | 1x1 Conv vs Linear | [code](/note/pointwise_conv.ipynb) |
+| 2024.02.05-23 | ConvNeXt V1 | [blog](https://brunch.co.kr/@bfcced03a6054df/16) [code](/algorithm/06.ConvNext/v1) |
+| 2024.02.11 | layernorm | [code](/note/layernorm.ipynb) |
+| 2024.02.21 | EMA | [code](/note/ema.ipynb) |
+| 2024.02.22 | cosine scheduler with min lr | [code](/note/cosine_scheduler_with_lowerLimit.ipynb) |
+| 2024.02.22 | noisynn | [code](/note/noisynn.ipynb) |
+| 2024.02.26- | ConvNeXt V2 | [code](/algorithm/06.ConvNext/v2) |

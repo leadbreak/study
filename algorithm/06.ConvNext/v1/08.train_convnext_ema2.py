@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-
 import torch.optim as optim
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
@@ -20,7 +19,7 @@ from sklearn.metrics import confusion_matrix
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
-from noisy_convnext2 import load_convNext
+from convnext import load_convNext
 from torchsummary import summary
 import math
 import warnings
@@ -52,7 +51,7 @@ class CosineWarmupScheduler(_LRScheduler):
                 lr = self.min_lr + (base_lr - self.min_lr) * 0.5 * (1 + math.cos(math.pi * self.num_cycles * 2.0 * progress))
             lrs.append(lr)
         return lrs
-    
+
 model = load_convNext()
 
 # 총 파라미터 수 계산
@@ -68,6 +67,7 @@ print('='*80)
 
 model_summary = summary(model.cuda(), (3, 224, 224))
 print(model_summary)
+
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
@@ -107,10 +107,10 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.999
+    ema_decay = 0.9999
     model_ema = ModelEmaV3(
         model,
-        decay=ema_decay,       
+        decay=ema_decay,
     )
     print(f"Using EMA with decay = {ema_decay}")
 
@@ -129,8 +129,8 @@ if mixup :
     criterion = SoftTargetCrossEntropy()
 else :
     criterion = LabelSmoothingCrossEntropy(.1)
-criterion2 = nn.CrossEntropyLoss()
 
+criterion2 = nn.CrossEntropyLoss()
 epochs = 500
 
 optimizer = optim.AdamW(model.parameters(), lr=4e-3, weight_decay=0.05)
@@ -140,7 +140,7 @@ scheduler = CosineWarmupScheduler(optimizer,
                                 num_warmup_steps=warmup_steps, 
                                 num_training_steps=train_steps,
                                 num_cycles=0.5,
-                                min_lr=1e-7)
+                                min_lr=1e-6)
 # scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
 #                                                         num_warmup_steps=warmup_steps, 
 #                                                         num_training_steps=train_steps,
@@ -219,7 +219,7 @@ for i in range(epochs // 100):
         epoch_duration = time.time() - start_time
         training_time += epoch_duration
         
-        text = f'\tLoss: {epoch_loss:.4f}, Val_Loss: {val_loss:.4f}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
+        text = f'\tLoss: {epoch_loss:.4f}, Val_Loss: {val_loss:.4f}, Total Mean Loss: {total_loss/2:.4f}, LR: {lr}, Duration: {epoch_duration:.2f} sec'
         
         if model_save:
             text += f' - model saved!'
@@ -259,3 +259,4 @@ for i in range(epochs // 100):
 
     # 데이터프레임 출력
     print(f"\n[{i*100+100} epoch result]\n", performance_metrics)
+

@@ -38,9 +38,6 @@ print('='*80)
 model_summary = summary(model.cuda(), (3, 224, 224))
 print(model_summary)
 
-print("\n이전 학습 종료 대기 중...")
-time.sleep(60000+600)
-
 # Transforms 정의하기
 train_transform = transforms.Compose([
     transforms.RandomResizedCrop(224, scale=(0.6,1), interpolation=transforms.InterpolationMode.BICUBIC),

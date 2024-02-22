@@ -22,7 +22,37 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 from noisy_convnext import load_convNext
 from torchsummary import summary
+import math
+import warnings
+from torch.optim.lr_scheduler import _LRScheduler
 
+
+class CosineWarmupScheduler(_LRScheduler):
+    def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
+        self.num_warmup_steps = num_warmup_steps
+        self.num_training_steps = num_training_steps
+        self.num_cycles = num_cycles
+        self.min_lr = min_lr
+        self.base_lrs = [group['lr'] for group in optimizer.param_groups]
+        super().__init__(optimizer, last_epoch, verbose)
+
+    def get_lr(self):
+        if not self._get_lr_called_within_step:
+            warnings.warn("To get the last learning rate computed by the scheduler, "
+                          "please use `get_last_lr()`.", UserWarning)
+        
+        lrs = []
+        for base_lr in self.base_lrs:
+            if self.last_epoch < self.num_warmup_steps:
+                # Linear warmup
+                lr = (base_lr - self.min_lr) * self.last_epoch / max(1, self.num_warmup_steps) + self.min_lr
+            else:
+                # Cosine annealing
+                progress = (self.last_epoch - self.num_warmup_steps) / max(1, self.num_training_steps - self.num_warmup_steps)
+                lr = self.min_lr + (base_lr - self.min_lr) * 0.5 * (1 + math.cos(math.pi * self.num_cycles * 2.0 * progress))
+            lrs.append(lr)
+        return lrs
+    
 model = load_convNext()
 
 # 총 파라미터 수 계산
@@ -40,7 +70,7 @@ model_summary = summary(model.cuda(), (3, 224, 224))
 print(model_summary)
 
 print("\n이전 학습 종료 대기 중...")
-time.sleep(90000+600)
+time.sleep(30000)
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
@@ -57,7 +87,7 @@ test_transform = transforms.Compose([
 ])
 
 data_dir = '../../data/sports'
-batch_size = 1024
+batch_size = 800
 
 train_path = data_dir+'/train'
 valid_path = data_dir+'/valid'
@@ -109,10 +139,15 @@ epochs = 500
 optimizer = optim.AdamW(model.parameters(), lr=4e-3, weight_decay=0.05)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
-scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
-                                                        num_warmup_steps=warmup_steps, 
-                                                        num_training_steps=train_steps,
-                                                        num_cycles=0.5)
+scheduler = CosineWarmupScheduler(optimizer, 
+                                num_warmup_steps=warmup_steps, 
+                                num_training_steps=train_steps,
+                                num_cycles=0.5,
+                                min_lr=1e-6)
+# scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
+#                                                         num_warmup_steps=warmup_steps, 
+#                                                         num_training_steps=train_steps,
+#                                                         num_cycles=0.5)
 
 training_time = 0
 losses = []
