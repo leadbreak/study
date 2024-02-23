@@ -19,41 +19,12 @@ import transformers
 from sklearn.metrics import confusion_matrix
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
-
-from noisy_convnext import load_convNext
 from torchsummary import summary
-import math
-import warnings
-from torch.optim.lr_scheduler import _LRScheduler
 
+from convnext_official import convnext_tiny
 
-class CosineWarmupScheduler(_LRScheduler):
-    def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
-        self.num_warmup_steps = num_warmup_steps
-        self.num_training_steps = num_training_steps
-        self.num_cycles = num_cycles
-        self.min_lr = min_lr
-        self.base_lrs = [group['lr'] for group in optimizer.param_groups]
-        super().__init__(optimizer, last_epoch, verbose)
-
-    def get_lr(self):
-        if not self._get_lr_called_within_step:
-            warnings.warn("To get the last learning rate computed by the scheduler, "
-                          "please use `get_last_lr()`.", UserWarning)
-        
-        lrs = []
-        for base_lr in self.base_lrs:
-            if self.last_epoch < self.num_warmup_steps:
-                # Linear warmup
-                lr = (base_lr - self.min_lr) * self.last_epoch / max(1, self.num_warmup_steps) + self.min_lr
-            else:
-                # Cosine annealing
-                progress = (self.last_epoch - self.num_warmup_steps) / max(1, self.num_training_steps - self.num_warmup_steps)
-                lr = self.min_lr + (base_lr - self.min_lr) * 0.5 * (1 + math.cos(math.pi * self.num_cycles * 2.0 * progress))
-            lrs.append(lr)
-        return lrs
-    
-model = load_convNext()
+model = convnext_tiny()
+print(model)
 
 # 총 파라미터 수 계산
 total_params = sum(p.numel() for p in model.parameters())
@@ -67,10 +38,6 @@ print(f"Trainable Parameters: {trainable_params:,}\n")
 print('='*80)
 
 model_summary = summary(model.cuda(), (3, 224, 224))
-print(model_summary)
-
-print("\n이전 학습 종료 대기 중...")
-time.sleep(30000)
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
@@ -87,7 +54,7 @@ test_transform = transforms.Compose([
 ])
 
 data_dir = '../../data/sports'
-batch_size = 800
+batch_size = 1024
 
 train_path = data_dir+'/train'
 valid_path = data_dir+'/valid'
@@ -113,7 +80,7 @@ if ema_active:
     ema_decay = 0.9999
     model_ema = ModelEmaV3(
         model,
-        decay=ema_decay,       
+        decay=ema_decay,
     )
     print(f"Using EMA with decay = {ema_decay}")
 
@@ -132,22 +99,18 @@ if mixup :
     criterion = SoftTargetCrossEntropy()
 else :
     criterion = LabelSmoothingCrossEntropy(.1)
-criterion2 = nn.CrossEntropyLoss()
+    
+criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
-epochs = 500
+epochs = 100
 
 optimizer = optim.AdamW(model.parameters(), lr=4e-3, weight_decay=0.05)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
-scheduler = CosineWarmupScheduler(optimizer, 
-                                num_warmup_steps=warmup_steps, 
-                                num_training_steps=train_steps,
-                                num_cycles=0.5,
-                                min_lr=1e-6)
-# scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
-#                                                         num_warmup_steps=warmup_steps, 
-#                                                         num_training_steps=train_steps,
-#                                                         num_cycles=0.5)
+scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
+                                                        num_warmup_steps=warmup_steps, 
+                                                        num_training_steps=train_steps,
+                                                        num_cycles=0.5)
 
 training_time = 0
 losses = []
@@ -205,7 +168,7 @@ for i in range(epochs // 100):
             for data in valid_loader:
                 inputs, labels = data[0].to(device), data[1].to(device)
                 outputs = model(inputs)
-                loss = criterion2(outputs, labels)
+                loss = criterion(outputs, labels)
                 val_loss += loss.item()
                 
         val_loss /= len(valid_loader)

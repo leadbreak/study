@@ -1,6 +1,7 @@
 # plus
 data/
 .vscode
+test.png
 
 # models
 *.keras

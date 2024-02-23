@@ -26,26 +26,6 @@ class LayerNorm(nn.Module):
         x = x * self.weight[:, None, None] + self.bias[:, None, None]
         return x
 
-def quality_matrix(k, alpha=0.3):
-    """
-    Quality matrix Q. Described in the eq (17) so that eps = QX, where X is the input. 
-    Alpha is 0.3, as mentioned in Appendix D.
-    """
-    identity = torch.diag(torch.ones(k))
-    shift_identity = torch.zeros(k, k)
-    for i in range(k):
-        shift_identity[(i+1)%k, i] = 1
-    opt = -alpha * identity + alpha * shift_identity
-    return opt
-
-def optimal_quality_matrix(k):
-    """
-    Optimal Quality matrix Q. Described in the eq (19) so that eps = QX, where X is the input. 
-    Suppose 1_(kxk) is torch.ones
-    """
-    return torch.diag(torch.ones(k)) * -k/(k+1) + torch.ones(k, k) / (k+1)
-
-
 class Block(nn.Module):
 
     def __init__(self, dim, layerscale_init_value, dp_rate):
@@ -60,7 +40,7 @@ class Block(nn.Module):
         # layerscale
         self.gamma = nn.Parameter(layerscale_init_value * torch.ones((1, dim, 1, 1)), requires_grad=True) if layerscale_init_value > 0 else None
         # droppath(stochastic depth)
-        self.droppath = DropPath(dp_rate) if dp_rate > 0. else nn.Identity()      
+        self.droppath = DropPath(dp_rate) if dp_rate > 0. else nn.Identity()
 
     def forward(self, x):
         identity = x
@@ -84,8 +64,7 @@ class convNext(nn.Module):
                  depths=[3,3,9,3], 
                  layerscale_init_value=1e-6,
                  droppath=0.1,
-                 num_classes=100,
-                 optimal=False):
+                 num_classes=100):
         super(convNext, self).__init__()
         
         # Patchify Stem
@@ -118,13 +97,6 @@ class convNext(nn.Module):
             self.stages.append(stage)
             
             cur += depths[i]
-        
-        # noisy-nn
-        if optimal:
-            linear_transform_noise = optimal_quality_matrix(14) # 3rd stage res
-        else:
-            linear_transform_noise = quality_matrix(14)
-        self.noisynn = nn.Parameter(linear_transform_noise, requires_grad=False)            
 
         # 평균 풀링과 Fully Connected Layer
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -135,12 +107,10 @@ class convNext(nn.Module):
         for i in range(4):        
             x = self.downsample_layers[i](x)    
             x = self.stages[i](x)        
-            if i == 2:
-                x = x@self.noisynn + x  # add noisynn
         return x
 
     def forward(self, x):
-        x = self.forward_features(x)     
+        x = self.forward_features(x)
 
         x = self.avgpool(x)     # (N, C, H, W) -> (N, C, 1, 1)
         x = torch.flatten(x, 1) # (N, C, 1, 1) -> (N, C)
@@ -148,5 +118,5 @@ class convNext(nn.Module):
         x = self.fc(x)
         return x
     
-def load_convNext(**params):
-    return convNext(Block, dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100, **params)
+def load_convNext():
+    return convNext(Block, dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100)
