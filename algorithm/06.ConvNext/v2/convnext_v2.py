@@ -3,6 +3,20 @@ import torch.nn as nn
 from collections import OrderedDict
 from timm.models.layers import DropPath
 
+class GRN(nn.Module):
+    """ GRN (Global Response Normalization) layer
+    """
+    def __init__(self, dim):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.zeros(1, dim, 1, 1))
+        self.beta = nn.Parameter(torch.zeros(1, dim, 1, 1))
+
+    def forward(self, x):
+        Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True)
+        Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-6)
+        
+        return self.gamma * (x * Nx) + self.beta + x
+
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
         return x * torch.sigmoid(1.702 * x)
@@ -28,17 +42,16 @@ class LayerNorm(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, layerscale_init_value, dp_rate):
+    def __init__(self, dim, dp_rate):
         super(Block, self).__init__()
         
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)
         self.layernorm = LayerNorm(dim)
         self.pwconv1 = nn.Conv2d(dim, dim*4, kernel_size=1)
         self.act = QuickGELU()
+        self.grn = GRN(dim*4) # Global Response Normalization
         self.pwconv2 = nn.Conv2d(dim*4, dim, kernel_size=1)
         
-        # layerscale
-        self.gamma = nn.Parameter(layerscale_init_value * torch.ones((1, dim, 1, 1)), requires_grad=True) if layerscale_init_value > 0 else None
         # droppath(stochastic depth)
         self.droppath = DropPath(dp_rate) if dp_rate > 0. else nn.Identity()
 
@@ -48,10 +61,8 @@ class Block(nn.Module):
         x = self.layernorm(x)
         x = self.pwconv1(x)
         x = self.act(x)
+        x = self.grn(x)
         x = self.pwconv2(x)
-        
-        if self.gamma is not None:
-            x *= self.gamma
         
         x = identity + self.droppath(x)
         
@@ -62,7 +73,6 @@ class convNext(nn.Module):
                  block, 
                  dims=[96,192,384,768],
                  depths=[3,3,9,3], 
-                 layerscale_init_value=1e-6,
                  droppath=0.1,
                  num_classes=100):
         super(convNext, self).__init__()
@@ -91,7 +101,6 @@ class convNext(nn.Module):
         for i in range(4):
             stage = nn.Sequential(
                 *[block(dims[i], 
-                        layerscale_init_value=layerscale_init_value,
                         dp_rate=dp_rates[cur+j]) for j in range(depths[i])]
             )
             self.stages.append(stage)

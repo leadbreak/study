@@ -1,15 +1,17 @@
 '''
 100epoch 기준
-    Metric     Value
-0   Accuracy  0.876000
-1  Precision  0.900452
-2     Recall  0.876000
-3   F1 Score  0.871974
+       Metric     Value
+0   Accuracy  0.872000
+1  Precision  0.896238
+2     Recall  0.872000
+3   F1 Score  0.867200
 
 '''
 
+
 import torch
 import torch.nn as nn
+import torchvision.transforms.functional as F
 
 import torch.optim as optim
 from torchvision import transforms
@@ -77,17 +79,16 @@ print(f"Trainable Parameters: {trainable_params:,}\n")
 print('='*80)
 
 print("이전 학습 종료 대기 중...")
-time.sleep(1250)
+time.sleep(30000+1250+600)
 
 # model_summary = summary(model.cuda(), (3, 224, 224))
 
 # Transforms 정의하기
 train_transform = transforms.Compose([
+    transforms.TrivialAugmentWide(interpolation=F.InterpolationMode.BICUBIC),
     transforms.RandomResizedCrop(224, scale=(0.6,1), interpolation=transforms.InterpolationMode.BICUBIC),
-    transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    transforms.RandomErasing(p=1., scale=(0.02, 0.33)),
 ])
 
 test_transform = transforms.Compose([
