@@ -49,7 +49,7 @@ class Block(nn.Module):
         self.layernorm = GRN(dim)
         self.pwconv1 = nn.Conv2d(dim, dim*4, kernel_size=1)
         self.act = QuickGELU()
-        self.grn2 = GRN(dim*4) # Global Response Normalization
+        self.grn = GRN(dim*4) # Global Response Normalization
         self.pwconv2 = nn.Conv2d(dim*4, dim, kernel_size=1)
         
         # droppath(stochastic depth)
@@ -109,7 +109,7 @@ class convNext(nn.Module):
 
         # 평균 풀링과 Fully Connected Layer
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.layernorm = GRN(dims[3])      # Channel Last Layernorm
+        self.layernorm = nn.LayerNorm(dims[3])      # Channel Last Layernorm
         self.fc = nn.Linear(dims[3], num_classes)
         
     def forward_features(self, x):
