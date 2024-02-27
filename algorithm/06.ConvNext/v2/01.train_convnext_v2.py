@@ -1,11 +1,17 @@
 '''
-100epoch 기준
+[100 epoch result]
     Metric     Value
 0   Accuracy  0.876000
 1  Precision  0.900452
 2     Recall  0.876000
 3   F1 Score  0.871974
 
+[500 epoch result]
+       Metric     Value
+0   Accuracy  0.938000
+1  Precision  0.950151
+2     Recall  0.938000
+3   F1 Score  0.936006
 '''
 
 import torch

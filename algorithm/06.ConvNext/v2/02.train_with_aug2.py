@@ -1,10 +1,6 @@
 '''
 [100 epoch result]
-       Metric     Value
-0   Accuracy  0.872000
-1  Precision  0.896238
-2     Recall  0.872000
-3   F1 Score  0.867200
+
 
 '''
 
@@ -33,7 +29,7 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from torchsummary import summary
 
-from convnext_v2 import load_convNext
+from convnext_v2_test import load_convNext
 import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
@@ -77,6 +73,9 @@ print('='*80)
 print(f"\nTotal Parameters: {total_params:,}")
 print(f"Trainable Parameters: {trainable_params:,}\n")
 print('='*80)
+
+print("이전 학습 종료 대기 중..")
+time.sleep(80*110+600)
 
 # model_summary = summary(model.cuda(), (3, 224, 224))
 
