@@ -82,9 +82,6 @@ print(f"\nTotal Parameters: {total_params:,}")
 print(f"Trainable Parameters: {trainable_params:,}\n")
 print('='*80)
 
-print("이전 학습 종료 대기 중...")
-time.sleep(1250)
-
 # model_summary = summary(model.cuda(), (3, 224, 224))
 
 # Transforms 정의하기
