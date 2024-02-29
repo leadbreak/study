@@ -1,17 +1,24 @@
 '''
-[100 epoch result]
-    Metric     Value
-0   Accuracy  0.876000
-1  Precision  0.900452
-2     Recall  0.876000
-3   F1 Score  0.871974
+[100 epoch result]                                                                                                                                                                                                            
+       Metric     Value                                                                                                                                                                                                       
+0   Accuracy  0.884000                                                                                                                                                                                                        
+1  Precision  0.911151                                                                                                                                                                                                        
+2     Recall  0.884000                                                                                                                                                                                                        
+3   F1 Score  0.878678  
+
+[400 epoch result]                                                                                                                                                                                                            
+       Metric     Value                                                                                                                                                                                                       
+0   Accuracy  0.948000                                                                                                                                                                                                        
+1  Precision  0.955762                                                                                                                                                                                                        
+2     Recall  0.948000                                                                                                                                                                                                        
+3   F1 Score  0.946732 
 
 [500 epoch result]
        Metric     Value
-0   Accuracy  0.938000
-1  Precision  0.950151
-2     Recall  0.938000
-3   F1 Score  0.936006
+0   Accuracy  0.946000
+1  Precision  0.954595
+2     Recall  0.946000
+3   F1 Score  0.944379
 '''
 
 import torch
