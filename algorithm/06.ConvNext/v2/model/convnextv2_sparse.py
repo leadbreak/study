@@ -147,7 +147,7 @@ class SparseConvNeXtV2(nn.Module):
         for i in range(3):
             downsample_layer = nn.Sequential(OrderedDict([
                                 (f'ds_ln{i}', MinkowskiLayerNorm(dims[i], 1e-6)),
-                                (f'ds_conv{i+1}', MinkowskiConvolution(dims[i], dims[i+1], kernel_size=2, bias=True, dimension=D)),                                
+                                (f'ds_conv{i+1}', MinkowskiConvolution(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=D)),                                
                                 ]))
             self.downsample_layers.append(downsample_layer)
         
@@ -157,12 +157,9 @@ class SparseConvNeXtV2(nn.Module):
         cur = 0
         for i in range(4):
             stage = nn.Sequential(
-                *[Block(dims[i], 
-                        D=D,
-                        dp_rate=dp_rates[cur+j],) for j in range(depths[i])]
+                *[Block(dims[i], dp_rate=dp_rates[cur+j], D=D) for j in range(depths[i])]
             )
-            self.stages.append(stage)
-            
+            self.stages.append(stage)            
             cur += depths[i]
 
     def upsample_mask(self, mask, scale):

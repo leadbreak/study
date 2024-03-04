@@ -8,12 +8,13 @@ class GRN(nn.Module):
     """
     def __init__(self, dim):
         super().__init__()
-        self.gamma = nn.Parameter(torch.zeros(1, 1, 1, dim))
-        self.beta = nn.Parameter(torch.zeros(1, 1, 1, dim))
+        self.gamma = nn.Parameter(torch.zeros(1, dim, 1, 1))
+        self.beta = nn.Parameter(torch.zeros(1, dim, 1, 1))
 
     def forward(self, x):
         Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True)
         Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-6)
+        
         return self.gamma * (x * Nx) + self.beta + x
 
 class QuickGELU(nn.Module):
@@ -45,11 +46,11 @@ class Block(nn.Module):
         super(Block, self).__init__()
         
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)
-        self.layernorm = nn.LayerNorm(dim)
-        self.pwconv1 = nn.Linear(dim, dim*4)
+        self.layernorm = LayerNorm(dim)
+        self.pwconv1 = nn.Conv2d(dim, dim*4, kernel_size=1)
         self.act = QuickGELU()
         self.grn = GRN(dim*4) # Global Response Normalization
-        self.pwconv2 = nn.Linear(dim*4, dim)
+        self.pwconv2 = nn.Conv2d(dim*4, dim, kernel_size=1)
         
         # droppath(stochastic depth)
         self.droppath = DropPath(dp_rate) if dp_rate > 0. else nn.Identity()
@@ -57,13 +58,11 @@ class Block(nn.Module):
     def forward(self, x):
         identity = x
         x = self.dwconv(x)
-        x = x.permute(0,2,3,1) # (N, C, H, W) -> (N, H, W, C) : For Channel-wise norm
         x = self.layernorm(x)
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.grn(x)
         x = self.pwconv2(x)
-        x = x.permute(0,3,1,2) # (N, H, W, C) -> (N, C, H, W)
         
         x = identity + self.droppath(x)
         
