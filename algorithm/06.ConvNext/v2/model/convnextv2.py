@@ -128,5 +128,5 @@ class ConvNeXtV2(nn.Module):
         x = self.fc(x)
         return x
     
-def load_convNext():
-    return ConvNeXtV2(dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100)
+def load_convNext(**args):
+    return ConvNeXtV2(dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100, **args)
