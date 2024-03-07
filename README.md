@@ -1,8 +1,8 @@
 ## Table of Contents
 ### algorithm
-- AI 관련 페이퍼를 읽고 모델링부터 훈련 및 파인튜닝에 이르기까지 디테일하게 구현 및 테스트하고 리뷰 with A100 80GB
+- 논문을 읽고 모델링부터 훈련 및 파인튜닝에 이르기까지 디테일하게 구현 및 테스트하고 리뷰
 ### dl_framework
-- AI Framework의 새로운 기능이나 언어에 대한 학습 및 정리
+- Framework의 새로운 기능이나 언어에 대한 학습 및 정리
 ### note
 - 인공지능 관련 단일 개념에 대해 정리
 ### python

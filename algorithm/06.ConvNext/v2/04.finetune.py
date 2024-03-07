@@ -136,7 +136,7 @@ def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_posit
         print('\n'.join(error_msgs))
         
 # checkpoint_model = convnextv2_fcmae_tiny()
-model = load_convNext(droppath=0.2)
+model = load_convNext(droppath=0.1)
 
 pretrain_path = '../../model/convnext/fcmae.pt'
 checkpoint_model = torch.load(pretrain_path, map_location='cpu')
@@ -144,7 +144,7 @@ checkpoint_model = torch.load(pretrain_path, map_location='cpu')
 state_dict = model.state_dict()
 for k in ['head.weight', 'head.bias']:
     if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
-        print(f"Removing key {k} from pretrained checkpoint")
+        print(f"Removing key {k} from head of pretrained checkpoint")
         del checkpoint_model[k]
 
 
@@ -153,7 +153,7 @@ checkpoint_model_keys = list(checkpoint_model.keys())
 for k in checkpoint_model_keys:
     if 'decoder' in k or 'mask_token'in k or \
         'proj' in k or 'pred' in k:
-        print(f"Removing key {k} from pretrained checkpoint")
+        print(f"Removing key {k} from decoder of pretrained checkpoint")
         del checkpoint_model[k]
 
 checkpoint_model = remap_checkpoint_keys(checkpoint_model)
@@ -209,7 +209,7 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.9998
+    ema_decay = 0.999
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,
@@ -242,7 +242,7 @@ for i, (name, params) in enumerate(model.named_parameters()):
     
 layer_names.reverse()
 
-lr      = 8e-4  
+lr      = 8e-3  
 lr_mult = 0.9  
 weight_decay = 0.05 
 
