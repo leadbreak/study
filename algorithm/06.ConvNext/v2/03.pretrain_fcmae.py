@@ -40,6 +40,7 @@ class CosineWarmupScheduler(_LRScheduler):
             lrs.append(lr)
         return lrs
     
+torch.backends.cudnn.benchmark = True
 model = convnextv2_fcmae_tiny()
 
 # Transforms 정의하기
@@ -63,8 +64,8 @@ model.to(device)
 
 model_path = '../../model/convnext/fcmae.pt'
 
-epochs = 500
-optimizer = optim.AdamW(model.parameters(), lr=1.5e-4, weight_decay=0.05, betas=(0.9, 0.95))
+epochs = 800
+optimizer = optim.AdamW(model.parameters(), lr=1.5e-3, weight_decay=0.01, betas=(0.9, 0.95))
 
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)

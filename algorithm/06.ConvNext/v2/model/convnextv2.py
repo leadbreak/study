@@ -79,19 +79,19 @@ class ConvNeXtV2(nn.Module):
         super(ConvNeXtV2, self).__init__()
         
         # Patchify Stem
-        self.stem = nn.Sequential(OrderedDict([
+        stem = nn.Sequential(OrderedDict([
             ('stem_conv', nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=4)),
             ('stem_ln', LayerNorm(dims[0])),
         ]))
         
         # downsample layers
         self.downsample_layers = nn.ModuleList()    
-        self.downsample_layers.append(self.stem)    
+        self.downsample_layers.append(stem)    
         
         for i in range(3):
             downsample_layer = nn.Sequential(OrderedDict([
-                                (f'ds_ln{i}', LayerNorm(dims[i])),
-                                (f'ds_conv{i+1}', nn.Conv2d(dims[i], dims[i+1], kernel_size=2, stride=2)),                                
+                                (f'ds_ln', LayerNorm(dims[i])),
+                                (f'ds_conv', nn.Conv2d(dims[i], dims[i+1], kernel_size=2, stride=2)),                                
                                 ]))
             self.downsample_layers.append(downsample_layer)
         

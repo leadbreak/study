@@ -135,19 +135,19 @@ class SparseConvNeXtV2(nn.Module):
         super(SparseConvNeXtV2, self).__init__()
         
         # Patchify Stem
-        self.stem = nn.Sequential(OrderedDict([
+        stem = nn.Sequential(OrderedDict([
             ('stem_conv', nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=4)),
             ('stem_ln', LayerNorm(dims[0])),
         ]))
         
         # downsample layers
         self.downsample_layers = nn.ModuleList()    
-        self.downsample_layers.append(self.stem)    
+        self.downsample_layers.append(stem)    
         
         for i in range(3):
             downsample_layer = nn.Sequential(OrderedDict([
-                                (f'ds_ln{i}', MinkowskiLayerNorm(dims[i], 1e-6)),
-                                (f'ds_conv{i+1}', MinkowskiConvolution(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=D)),                                
+                                (f'ds_ln', MinkowskiLayerNorm(dims[i], 1e-6)),
+                                (f'ds_conv', MinkowskiConvolution(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=D)),                                
                                 ]))
             self.downsample_layers.append(downsample_layer)
         

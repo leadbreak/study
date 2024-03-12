@@ -51,6 +51,10 @@ class CosineWarmupScheduler(_LRScheduler):
                 lr = self.min_lr + (base_lr - self.min_lr) * 0.5 * (1 + math.cos(math.pi * self.num_cycles * 2.0 * progress))
             lrs.append(lr)
         return lrs
+        
+# checkpoint_model = convnextv2_fcmae_tiny()
+model = load_convNext(droppath=0.2)
+
 
 def remap_checkpoint_keys(ckpt):
     new_ckpt = OrderedDict()
@@ -134,9 +138,6 @@ def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_posit
             model.__class__.__name__, ignore_missing_keys))
     if len(error_msgs) > 0:
         print('\n'.join(error_msgs))
-        
-# checkpoint_model = convnextv2_fcmae_tiny()
-model = load_convNext(droppath=0.1)
 
 pretrain_path = '../../model/convnext/fcmae.pt'
 checkpoint_model = torch.load(pretrain_path, map_location='cpu')
@@ -146,7 +147,6 @@ for k in ['head.weight', 'head.bias']:
     if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
         print(f"Removing key {k} from head of pretrained checkpoint")
         del checkpoint_model[k]
-
 
 # remove decoder weights
 checkpoint_model_keys = list(checkpoint_model.keys())
@@ -236,6 +236,40 @@ criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 
 # LLRD
+def LLRD_ConvNeXt(depths=[3,3,9,3]):
+    stage = 0
+    layer_names = []
+    for depth in depths:
+        if stage == 0:
+            layer_names.append(f'downsampling_layers.{stage}.stem_conv.weight')
+            layer_names.append(f'downsampling_layers.{stage}.stem_conv.bias')
+            layer_names.append(f'downsampling_layers.{stage}.stem_ln.weight')
+            layer_names.append(f'downsampling_layers.{stage}.stem_ln.bias')
+        else :
+            layer_names.append(f'downsampling_layers.{stage}.ds_ln.weight')
+            layer_names.append(f'downsampling_layers.{stage}.ds_ln.bias')
+            layer_names.append(f'downsampling_layers.{stage}.ds_conv.weight')
+            layer_names.append(f'downsampling_layers.{stage}.ds_conv.bias')
+        
+        for i in range(depth):
+            layer_names.append(f'stages.{stage}.{i}.dwconv.weight')
+            layer_names.append(f'stages.{stage}.{i}.dwconv.bias')
+            layer_names.append(f'stages.{stage}.{i}.layernorm.weight')
+            layer_names.append(f'stages.{stage}.{i}.layernorm.bias')
+            layer_names.append(f'stages.{stage}.{i}.pwconv1.weight')
+            layer_names.append(f'stages.{stage}.{i}.pwconv1.bias')
+            layer_names.append(f'stages.{stage}.{i}.grn.gamma')
+            layer_names.append(f'stages.{stage}.{i}.grn.beta')            
+            layer_names.append(f'stages.{stage}.{i}.pwconv2.weight')
+            layer_names.append(f'stages.{stage}.{i}.pwconv2.bias')
+        stage += 1
+    
+    layer_names.append('layernorm.weight')
+    layer_names.append('layernorm.bias')
+    layer_names.append('fc.weight')
+    layer_names.append('fc.bias')
+    return layer_names
+
 layer_names = []
 for i, (name, params) in enumerate(model.named_parameters()):
     layer_names.append(name)
@@ -257,7 +291,7 @@ for idx, name in enumerate(layer_names):
         lr *= lr_mult
     prev_group_name = cur_group_name
     
-    # print(f"{idx}: {name}'s lr={lr}")
+    print(f"{idx}: {name}'s lr={lr}")
     
     param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
                       'lr' : lr,
