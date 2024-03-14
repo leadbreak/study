@@ -7,8 +7,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import time
 
-from torchsummary import summary
-
 from model.fcmae import convnextv2_fcmae_tiny
 import math
 import warnings
@@ -64,7 +62,7 @@ model.to(device)
 
 model_path = '../../model/convnext/fcmae.pt'
 
-epochs = 800
+epochs = 1600
 optimizer = optim.AdamW(model.parameters(), lr=1.5e-3, weight_decay=0.01, betas=(0.9, 0.95))
 
 warmup_steps = int(len(train_loader)*(epochs)*0.1)

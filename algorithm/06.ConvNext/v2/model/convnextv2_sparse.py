@@ -174,14 +174,12 @@ class SparseConvNeXtV2(nn.Module):
         mask = self.upsample_mask(mask, 2**(num_stages-1))
         mask = mask.unsqueeze(1).type_as(x)
         
-        # Patch Embedding
-        x = self.downsample_layers[0](x)
-        x *= (1.-mask)
-        
-        # Sparse Encoding
-        x = to_sparse(x)
         for i in range(4):        
-            x = self.downsample_layers[i](x) if i > 0 else x
+            x = self.downsample_layers[i](x)
+            if i == 0:
+                x *= (1.-mask)
+                # Sparse Encoding
+                x = to_sparse(x)
             x = self.stages[i](x)        
             
         # Densify
