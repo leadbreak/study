@@ -26,6 +26,9 @@ import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
+print('이전 학습 대기 중...')
+time.sleep(75*400 + 110*1000)
+
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
         self.num_warmup_steps = num_warmup_steps
@@ -270,32 +273,57 @@ def LLRD_ConvNeXt(depths=[3,3,9,3]):
     layer_names.append('fc.bias')
     return layer_names
 
-layer_names = []
-for i, (name, params) in enumerate(model.named_parameters()):
-    layer_names.append(name)
-    
+# LLRD
+layer_names = LLRD_ConvNeXt()    
 layer_names.reverse()
 
-lr      = 8e-3  
+lr0     = 8e-3  
 lr_mult = 0.9  
 weight_decay = 0.05 
 
 param_groups = []
 prev_group_name = layer_names[0].split('.')[0]
 
+lr = lr0
+cnt = 0
+
+groups = []
+decay_check = False
 for idx, name in enumerate(layer_names):
-    
-    cur_group_name = name.split('.')[0]
-    
-    if cur_group_name != prev_group_name:
-        lr *= lr_mult
-    prev_group_name = cur_group_name
-    
-    print(f"{idx}: {name}'s lr={lr}")
-    
-    param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
-                      'lr' : lr,
-                      'weight_decay': weight_decay}]
+    if "bias" in name :
+        print(f"{idx}: {name} | lr={lr0}")
+        param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
+                        'lr' : lr0,
+                        'weight_decay': 0.}]   
+
+    else :          
+        if 'stage' in name:
+            group = name.split('.')[3]
+            groups.append(group)
+            if ('grn' in groups) :
+                if (len(groups)==4) :
+                    decay_check = True
+                    groups = []
+
+            elif len(groups) == 3 :
+                decay_check = True
+                groups = []    
+                
+        else :
+            group = name.split('.')[0]
+            groups.append(group)
+            if len(groups) == 2:
+                decay_check = True
+                groups = []
+                      
+        param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
+                        'lr' : lr,
+                        'weight_decay': weight_decay}]
+        print(f"{idx}: {name} | lr={lr}, weight decay={weight_decay}")
+        
+        if decay_check:
+            lr *= lr_mult
+            decay_check = False
     
 
 epochs = 500
