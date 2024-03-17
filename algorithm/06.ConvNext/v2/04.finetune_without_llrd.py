@@ -1,3 +1,20 @@
+'''with 1,600epoch train mim pretrain
+[400 epoch result]                                                                                                                                                                                                                                                                       
+       Metric     Value                                                                                                                                                                                                                                                                  
+0   Accuracy  0.964000                                                                                                                                                                                                                                                                   
+1  Precision  0.968976                                                                                                                                                                                                                                                                   
+2     Recall  0.964000                                                                                                                                                                                                                                                                   
+3   F1 Score  0.963071  
+[500 epoch result]
+       Metric     Value
+0   Accuracy  0.964000
+1  Precision  0.969667
+2     Recall  0.964000
+3   F1 Score  0.962545
+
+
+'''
+
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as F
@@ -25,9 +42,6 @@ from model.convnextv2 import load_convNext
 import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
-
-print('이전 학습 대기 중...')
-time.sleep(80*1600)
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):

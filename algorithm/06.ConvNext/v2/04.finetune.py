@@ -1,3 +1,13 @@
+'''with 800epoch train MIM pretrain
+
+[500 epoch result]
+       Metric     Value
+0   Accuracy  0.960000
+1  Precision  0.967762
+2     Recall  0.960000
+3   F1 Score  0.959515
+'''
+
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as F

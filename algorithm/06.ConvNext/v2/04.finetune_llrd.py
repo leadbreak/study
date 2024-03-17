@@ -1,3 +1,12 @@
+'''
+[500 epoch result]
+       Metric     Value
+0   Accuracy  0.880000
+1  Precision  0.900782
+2     Recall  0.880000
+3   F1 Score  0.875218
+'''
+
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as F
@@ -26,8 +35,6 @@ import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
-print('이전 학습 대기 중...')
-time.sleep(80*1600 + 110*500)
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
@@ -276,7 +283,7 @@ layer_names = LLRD_ConvNeXt()
 layer_names.reverse()
 
 lr0     = 8e-3  
-lr_mult = 0.9  
+lr_mult = 0.99  
 weight_decay = 0.05 
 
 param_groups = []
@@ -294,18 +301,16 @@ for idx, name in enumerate(layer_names):
     if "bias" in name :
         print(f"{idx}: {name} | lr={lr0}")
         param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
-                        'lr' : lr0,
-                        'weight_decay' : 0.}]
+                        'lr' : lr0}]
     else :                    
         param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
-                        'lr' : lr,
-                        'weight_decay': weight_decay}]
-        print(f"{idx}: {name} | lr={lr}, weight decay={weight_decay}")
+                        'lr' : lr}]
+        print(f"{idx}: {name} | lr={lr}")
     
 
-epochs = 500
+epochs = 1000
 
-optimizer = optim.AdamW(param_groups)
+optimizer = optim.AdamW(param_groups, weight_decay=weight_decay)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
 scheduler = CosineWarmupScheduler(optimizer, 
