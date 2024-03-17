@@ -41,6 +41,9 @@ import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
+print("이전 학습 종료 대기 중...")
+time.sleep(102*690)
+
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
         self.num_warmup_steps = num_warmup_steps
@@ -69,7 +72,6 @@ class CosineWarmupScheduler(_LRScheduler):
         
 # checkpoint_model = convnextv2_fcmae_tiny()
 model = load_convNext(droppath=0.2)
-
 
 def remap_checkpoint_keys(ckpt):
     new_ckpt = OrderedDict()
@@ -290,7 +292,7 @@ layer_names = LLRD_ConvNeXt()
 layer_names.reverse()
 
 lr0     = 8e-3  
-lr_mult = 0.9  
+lr_mult = 0.97  
 weight_decay = 0.05 
 
 param_groups = []
@@ -306,7 +308,7 @@ for idx, name in enumerate(layer_names):
         print(f"{idx}: {name} | lr={lr0}")
         param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
                         'lr' : lr0,
-                        'weight_decay': 0.}]   
+                        }]   
 
     else :          
         if 'stage' in name:
@@ -329,9 +331,8 @@ for idx, name in enumerate(layer_names):
                 groups = []
                       
         param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
-                        'lr' : lr,
-                        'weight_decay': weight_decay}]
-        print(f"{idx}: {name} | lr={lr}, weight decay={weight_decay}")
+                        'lr' : lr}]
+        print(f"{idx}: {name} | lr={lr}")
         
         if decay_check:
             lr *= lr_mult
@@ -340,7 +341,7 @@ for idx, name in enumerate(layer_names):
 
 epochs = 500
 
-optimizer = optim.AdamW(param_groups)
+optimizer = optim.AdamW(param_groups, weight_decay=weight_decay)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
 scheduler = CosineWarmupScheduler(optimizer, 
