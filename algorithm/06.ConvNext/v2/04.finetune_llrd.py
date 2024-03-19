@@ -1,10 +1,24 @@
 '''
-[500 epoch result]
+[500 epoch result]                                                                                                                                                                                                                                                                                                          
+       Metric     Value                                                                                                                                                                                                                                                                                                     
+0   Accuracy  0.944000                                                                                                                                                                                                                                                                                                      
+1  Precision  0.953571                                                                                                                                                                                                                                                                                                      
+2     Recall  0.944000                                                                                                                                                                                                                                                                                                      
+3   F1 Score  0.943510   
+
+[800 epoch result]
        Metric     Value
-0   Accuracy  0.880000
-1  Precision  0.900782
-2     Recall  0.880000
-3   F1 Score  0.875218
+0   Accuracy  0.972000
+1  Precision  0.977048
+2     Recall  0.972000
+3   F1 Score  0.971687
+
+[1000 epoch result]
+       Metric     Value
+0   Accuracy  0.968000
+1  Precision  0.972500
+2     Recall  0.968000
+3   F1 Score  0.966843
 '''
 
 import torch
