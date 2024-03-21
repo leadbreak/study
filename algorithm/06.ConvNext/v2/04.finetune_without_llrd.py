@@ -42,8 +42,6 @@ import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
-print("이전 학습 종료 대기 중...")
-time.sleep(102*627)
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
@@ -73,7 +71,6 @@ class CosineWarmupScheduler(_LRScheduler):
         
 # checkpoint_model = convnextv2_fcmae_tiny()
 model = load_convNext(droppath=0.2)
-
 
 def remap_checkpoint_keys(ckpt):
     new_ckpt = OrderedDict()
