@@ -29,6 +29,9 @@ import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
+print('이전 학습 대기 중...')
+time.sleep(101*61+101*500+100)
+
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
@@ -238,7 +241,7 @@ else :
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=1e-5, lr=8e-3, scale=0.95):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=1e-5, lr=8e-3, scale=0.85):
     
     stage = 0
     layer_names = []
@@ -277,27 +280,26 @@ def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=1e-5, lr=8e-3, scale=0.9
         total_depths = sum(depths)
         if name.startswith("downsample_layers"):
             stage_id = int(name.split('.')[1])
-            layer_id = sum(depths[:stage_id])
-            param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+            layer_id = sum(depths[:stage_id]) + 1
+            param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
                                   'weight_decay':0.}
         
         elif name.startswith("stages"):
             stage_id = int(name.split('.')[1])
             block_id = int(name.split('.')[2])
-            layer_id = sum(depths[:stage_id]) + block_id
+            layer_id = sum(depths[:stage_id]) + block_id + 1
             if len(param.shape) == 1 or name.endswith(".bias") or name.endswith(".gamma") or name.endswith(".beta"):
-                param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+                param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
                                       'weight_decay':0.}
             else :
-                param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+                param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
                                       'weight_decay':weight_decay}       
         else : # head
-            layer_id = total_depths
             if len(param.shape) == 1 or name.endswith(".bias"):
-                param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+                param_groups[name] = {'lr':lr,
                                       'weight_decay':0.}
             else :
-                param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+                param_groups[name] = {'lr':lr,
                                       'weight_decay':weight_decay}    
     return layer_names, param_groups
 

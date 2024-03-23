@@ -50,7 +50,7 @@ class FCMAE(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, decoder_embed_dim, 1, 1))
         decoder = [Block(
             dim=decoder_embed_dim, 
-            dp_rate=0.) for i in range(decoder_depth)]
+            dp_rate=0.) for _ in range(decoder_depth)]
         self.decoder = nn.Sequential(*decoder)
         # pred
         self.pred = nn.Conv2d(

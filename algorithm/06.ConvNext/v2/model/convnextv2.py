@@ -1,3 +1,8 @@
+'''
+sparse convnext와 호환되도록 pointwise convolution 및 관련된 코드를 
+Linear 레이어 및 그와 호환되는 구조로 변경
+'''
+
 import torch
 import torch.nn as nn
 from collections import OrderedDict

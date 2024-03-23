@@ -1,17 +1,26 @@
-'''with 1,600epoch train mim pretrain
-[400 epoch result]                                                                                                                                                                                                                                                                       
-       Metric     Value                                                                                                                                                                                                                                                                  
-0   Accuracy  0.964000                                                                                                                                                                                                                                                                   
-1  Precision  0.968976                                                                                                                                                                                                                                                                   
-2     Recall  0.964000                                                                                                                                                                                                                                                                   
-3   F1 Score  0.963071  
+'''
+with 800epoch train mim pretrain
+[500 epoch result]
+       Metric     Value
+0   Accuracy  0.960000
+1  Precision  0.967762
+2     Recall  0.960000
+3   F1 Score  0.959515
 
+with 1,600epoch train mim pretrain
 [500 epoch result]
        Metric     Value
 0   Accuracy  0.964000
 1  Precision  0.969667
 2     Recall  0.964000
 3   F1 Score  0.962545
+
+[1000 epoch result]                                                         
+       Metric     Value                                                     
+0   Accuracy  0.974000                                                      
+1  Precision  0.978476                                                      
+2     Recall  0.974000                                                      
+3   F1 Score  0.973631  
 '''
 
 import torch
@@ -30,7 +39,6 @@ import time
 from timm.data import Mixup
 from timm.utils import ModelEmaV3
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
-import transformers
 
 from sklearn.metrics import confusion_matrix
 import pandas as pd

@@ -1,16 +1,5 @@
 '''
-[400 epoch result]                                                                                                                                                                                                                                                                       
-       Metric     Value                                                                                                                                                                                                                                                                  
-0   Accuracy  0.916000                                                                                                                                                                                                                                                                   
-1  Precision  0.931631                                                                                                                                                                                                                                                                   
-2     Recall  0.916000                                                                                                                                                                                                                                                                   
-3   F1 Score  0.912337   
-[500 epoch result]                                                                                                                          
-       Metric     Value                                                                                                                     
-0   Accuracy  0.914000                                                                                                                      
-1  Precision  0.927321                                                                                                                      
-2     Recall  0.914000                                                                                                                      
-3   F1 Score  0.910080  
+
 '''
 
 import torch
@@ -29,7 +18,6 @@ import time
 from timm.data import Mixup
 from timm.utils import ModelEmaV3
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
-import transformers
 
 from sklearn.metrics import confusion_matrix
 import pandas as pd
@@ -41,8 +29,6 @@ import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
-print("이전 학습 종료 대기 중...")
-time.sleep(102*690)
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
@@ -251,23 +237,23 @@ else :
     
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
-
 # LLRD
-def LLRD_ConvNeXt(depths=[3,3,9,3]):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=1e-5, lr=8e-3, scale=0.85):
+    
     stage = 0
     layer_names = []
+    param_groups = {}
     for depth in depths:
         if stage == 0:
-            layer_names.append(f'downsampling_layers.{stage}.stem_conv.weight')
-            layer_names.append(f'downsampling_layers.{stage}.stem_conv.bias')
-            layer_names.append(f'downsampling_layers.{stage}.stem_ln.weight')
-            layer_names.append(f'downsampling_layers.{stage}.stem_ln.bias')
+            layer_names.append(f'downsample_layers.{stage}.stem_conv.weight')
+            layer_names.append(f'downsample_layers.{stage}.stem_conv.bias')
+            layer_names.append(f'downsample_layers.{stage}.stem_ln.weight')
+            layer_names.append(f'downsample_layers.{stage}.stem_ln.bias')
         else :
-            layer_names.append(f'downsampling_layers.{stage}.ds_ln.weight')
-            layer_names.append(f'downsampling_layers.{stage}.ds_ln.bias')
-            layer_names.append(f'downsampling_layers.{stage}.ds_conv.weight')
-            layer_names.append(f'downsampling_layers.{stage}.ds_conv.bias')
-        
+            layer_names.append(f'downsample_layers.{stage}.ds_ln.weight')
+            layer_names.append(f'downsample_layers.{stage}.ds_ln.bias')
+            layer_names.append(f'downsample_layers.{stage}.ds_conv.weight')
+            layer_names.append(f'downsample_layers.{stage}.ds_conv.bias')        
         for i in range(depth):
             layer_names.append(f'stages.{stage}.{i}.dwconv.weight')
             layer_names.append(f'stages.{stage}.{i}.dwconv.bias')
@@ -285,63 +271,44 @@ def LLRD_ConvNeXt(depths=[3,3,9,3]):
     layer_names.append('layernorm.bias')
     layer_names.append('fc.weight')
     layer_names.append('fc.bias')
-    return layer_names
-
-# LLRD
-layer_names = LLRD_ConvNeXt()    
-layer_names.reverse()
-
-lr0     = 8e-3  
-lr_mult = 0.97  
-weight_decay = 0.05 
-
-param_groups = []
-prev_group_name = layer_names[0].split('.')[0]
-
-lr = lr0
-cnt = 0
-
-groups = []
-decay_check = False
-for idx, name in enumerate(layer_names):
-    if "bias" in name :
-        print(f"{idx}: {name} | lr={lr0}")
-        param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
-                        'lr' : lr0,
-                        }]   
-
-    else :          
-        if 'stage' in name:
-            group = name.split('.')[3]
-            groups.append(group)
-            if ('grn' in groups) :
-                if (len(groups)==4) :
-                    decay_check = True
-                    groups = []
-
-            elif len(groups) == 3 :
-                decay_check = True
-                groups = []    
-                
-        else :
-            group = name.split('.')[0]
-            groups.append(group)
-            if len(groups) == 2:
-                decay_check = True
-                groups = []
-                      
-        param_groups += [{'params': [ p for n, p in model.named_parameters() if n == name and p.requires_grad],
-                        'lr' : lr}]
-        print(f"{idx}: {name} | lr={lr}")
+    
+    # Layer Learning Rate Decay
+    for name, param in model.named_parameters():
+        total_depths = sum(depths)
+        if name.startswith("downsample_layers"):
+            stage_id = int(name.split('.')[1])
+            layer_id = sum(depths[:stage_id]) + 1
+            param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
+                                  'weight_decay':0.}
         
-        if decay_check:
-            lr *= lr_mult
-            decay_check = False
+        elif name.startswith("stages"):
+            stage_id = int(name.split('.')[1])
+            block_id = int(name.split('.')[2])
+            layer_id = sum(depths[:stage_id]) + block_id + 1
+            if len(param.shape) == 1 or name.endswith(".bias") or name.endswith(".gamma") or name.endswith(".beta"):
+                param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
+                                      'weight_decay':0.}
+            else :
+                param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
+                                      'weight_decay':weight_decay}       
+        else : # head
+            if len(param.shape) == 1 or name.endswith(".bias"):
+                param_groups[name] = {'lr':lr,
+                                      'weight_decay':0.}
+            else :
+                param_groups[name] = {'lr':lr,
+                                      'weight_decay':weight_decay}    
+    return layer_names, param_groups
+
+layer_names, param_groups = LLRD_ConvNeXt(model)
+param_groups = [{'params': param,
+                 'lr' : param_groups[name]['lr'],
+                 'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
     
 
-epochs = 500
+epochs = 1000
 
-optimizer = optim.AdamW(param_groups, weight_decay=weight_decay)
+optimizer = optim.AdamW(param_groups)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
 scheduler = CosineWarmupScheduler(optimizer, 

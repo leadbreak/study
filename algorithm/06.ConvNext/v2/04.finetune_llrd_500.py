@@ -30,6 +30,10 @@ import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
 
+print('이전 학습 대기 중...')
+time.sleep(101*61+101*1500+300)
+
+
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
         self.num_warmup_steps = num_warmup_steps
@@ -307,7 +311,7 @@ param_groups = [{'params': param,
                  'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
     
 
-epochs = 1000
+epochs = 500
 
 optimizer = optim.AdamW(param_groups)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
