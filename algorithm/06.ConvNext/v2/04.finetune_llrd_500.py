@@ -31,7 +31,7 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 
 print('이전 학습 대기 중...')
-time.sleep(101*61+101*1500+300)
+time.sleep(101*1250)
 
 
 class CosineWarmupScheduler(_LRScheduler):
