@@ -307,7 +307,7 @@ groups = [{'params': param,
             'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
     
 
-epochs = 100
+epochs = 1000
 
 optimizer = optim.AdamW(groups)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)

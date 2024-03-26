@@ -29,8 +29,8 @@ import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
-print('이전 학습 대기 중...')
-time.sleep(101*61+101*2000+500)
+print("이전 학습 대기 중...")
+time.sleep(101*400)
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
@@ -214,7 +214,7 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.999
+    ema_decay = 0.9998
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,
@@ -240,7 +240,7 @@ else :
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=1e-5, lr=8e-3, scale=0.95):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=5e-2, lr=8e-3, scale=0.95):
     
     stage = 0
     layer_names = []
@@ -304,14 +304,14 @@ def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=1e-5, lr=8e-3, scale=0.9
     return layer_names, param_groups
 
 layer_names, param_groups = LLRD_ConvNeXt(model)
-param_groups = [{'params': param,
-                 'lr' : param_groups[name]['lr'],
-                 'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
+groups = [{'params': param,
+            'lr' : param_groups[name]['lr'],
+            'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
     
 
-epochs = 1000
+epochs = 500
 
-optimizer = optim.AdamW(param_groups)
+optimizer = optim.AdamW(groups)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
 train_steps = len(train_loader)*(epochs)
 scheduler = CosineWarmupScheduler(optimizer, 

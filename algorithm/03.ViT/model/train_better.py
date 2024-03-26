@@ -54,7 +54,7 @@ def load_data(img_size:int,
 
 @click.command()
 @click.option('--train_option', default='holdout')
-@click.option('--data_dir', default='../data/sports')
+@click.option('--data_dir', default='../../data/sports')
 @click.option('--model_path', default=None)
 @click.option('--epochs', default=3)
 @click.option('--batch_size', default=64)
@@ -71,7 +71,7 @@ def load_data(img_size:int,
 @click.option('--mlp_ratio', default=4.)
 @click.option('--estimate_params', default=True)
 @click.option('--fused_attention', default=True)
-def main(data_dir:str='../data/sports',
+def main(data_dir:str='../../data/sports',
          train_option:str='total',
          model_path:str=None,
          epochs:int=10,
