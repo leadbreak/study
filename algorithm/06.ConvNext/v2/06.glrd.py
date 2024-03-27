@@ -214,7 +214,7 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.9998
+    ema_decay = 0.99
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,
@@ -279,27 +279,26 @@ def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=5e-2, lr=8e-4, scale=0.9
         total_depths = sum(depths)
         if name.startswith("downsample_layers"):
             stage_id = int(name.split('.')[1])
-            layer_id = sum(depths[:stage_id])
-            param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+            layer_id = sum(depths[:stage_id]) + 1
+            param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
                                   'weight_decay':0.}
         
         elif name.startswith("stages"):
             stage_id = int(name.split('.')[1])
             block_id = int(name.split('.')[2])
-            layer_id = sum(depths[:stage_id]) + block_id
+            layer_id = sum(depths[:stage_id]) + block_id + 1
             if len(param.shape) == 1 or name.endswith(".bias") or name.endswith(".gamma") or name.endswith(".beta"):
-                param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+                param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
                                       'weight_decay':0.}
             else :
-                param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+                param_groups[name] = {'lr':lr*(scale**((total_depths-layer_id)//3+1)),
                                       'weight_decay':weight_decay}       
         else : # head
-            layer_id = total_depths
             if len(param.shape) == 1 or name.endswith(".bias"):
-                param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+                param_groups[name] = {'lr':lr,
                                       'weight_decay':0.}
             else :
-                param_groups[name] = {'lr':lr*(scale**(total_depths-layer_id)),
+                param_groups[name] = {'lr':lr,
                                       'weight_decay':weight_decay}    
     return layer_names, param_groups
 

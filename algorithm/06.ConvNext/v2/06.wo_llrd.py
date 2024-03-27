@@ -214,7 +214,7 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.9998
+    ema_decay = 0.99
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,
@@ -240,7 +240,7 @@ else :
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=5e-2, lr=8e-4, scale=0.9):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=5e-2, lr=8e-4, scale=1.0):
     
     stage = 0
     layer_names = []
