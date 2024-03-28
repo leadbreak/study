@@ -30,7 +30,7 @@ import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
 print("이전 학습 대기 중...")
-time.sleep(101*400)
+time.sleep(102*220)
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
@@ -214,7 +214,7 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.99
+    ema_decay = 0.9998
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,
@@ -240,7 +240,7 @@ else :
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=5e-2, lr=8e-4, scale=0.9):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.9):
     
     stage = 0
     layer_names = []
@@ -308,7 +308,7 @@ groups = [{'params': param,
             'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
     
 
-epochs = 500
+epochs = 100
 
 optimizer = optim.AdamW(groups)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
@@ -317,7 +317,7 @@ scheduler = CosineWarmupScheduler(optimizer,
                                 num_warmup_steps=warmup_steps, 
                                 num_training_steps=train_steps,
                                 num_cycles=0.5,
-                                min_lr=1e-7)
+                                min_lr=1e-6)
 # scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
 #                                                         num_warmup_steps=warmup_steps, 
 #                                                         num_training_steps=train_steps,

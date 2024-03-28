@@ -1,5 +1,17 @@
 '''
+[800 epoch result]                                                                                                                                                                                                              
+       Metric     Value                                                                                                                                                                                                         
+0   Accuracy  0.972000                                                                                                                                                                                                          
+1  Precision  0.975667                                                                                                                                                                                                          
+2     Recall  0.972000                                                                                                                                                                                                          
+3   F1 Score  0.971778  
 
+[1000 epoch result]
+       Metric     Value
+0   Accuracy  0.968000
+1  Precision  0.972976
+2     Recall  0.968000
+3   F1 Score  0.967828
 '''
 
 import torch
