@@ -5,6 +5,20 @@
 1  Precision  0.937929                                                
 2     Recall  0.926000                                                
 3   F1 Score  0.923553   
+
+[800 epoch result]                                                                                                                                                                                    
+       Metric     Value                                                                                                                                                                               
+0   Accuracy  0.980000                                                                                                                                                                                
+1  Precision  0.983476                                                                                                                                                                                
+2     Recall  0.980000                                                                                                                                                                                
+3   F1 Score  0.979414 
+
+[1000 epoch result]                                                                                                                                                                                   
+       Metric     Value                                                                                                                                                                               
+0   Accuracy  0.972000                                                                                                                                                                                
+1  Precision  0.976786                                                                                                                                                                                
+2     Recall  0.972000                                                                                                                                                                                
+3   F1 Score  0.971263
 '''
 
 import torch
