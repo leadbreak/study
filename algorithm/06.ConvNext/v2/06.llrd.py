@@ -237,7 +237,7 @@ else :
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.95):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.99):
     
     stage = 0
     layer_names = []

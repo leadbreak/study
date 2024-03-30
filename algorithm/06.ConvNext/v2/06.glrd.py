@@ -30,7 +30,7 @@ import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
 print("이전 학습 대기 중...")
-time.sleep(102*220)
+time.sleep(101*1000)
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
@@ -240,7 +240,7 @@ else :
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.9):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.98):
     
     stage = 0
     layer_names = []
@@ -306,9 +306,8 @@ layer_names, param_groups = LLRD_ConvNeXt(model)
 groups = [{'params': param,
             'lr' : param_groups[name]['lr'],
             'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
-    
 
-epochs = 100
+epochs = 1000
 
 optimizer = optim.AdamW(groups)
 warmup_steps = int(len(train_loader)*(epochs)*0.1)
