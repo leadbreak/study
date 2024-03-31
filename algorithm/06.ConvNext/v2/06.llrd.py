@@ -1,5 +1,17 @@
 '''
+[900 epoch result]                                                                                                                                                                                                                                                                       
+       Metric     Value                                                                                                                                                                                                                                                                  
+0   Accuracy  0.970000                                                                                                                                                                                                                                                                   
+1  Precision  0.974810                                                                                                                                                                                                                                                                   
+2     Recall  0.970000                                                                                                                                                                                                                                                                   
+3   F1 Score  0.969611  
 
+[1000 epoch result]                                                                                                                         
+       Metric     Value                                                                                                                     
+0   Accuracy  0.968000                                                                                                                      
+1  Precision  0.974095                                                                                                                      
+2     Recall  0.968000                                                                                                                      
+3   F1 Score  0.967616   
 '''
 
 import torch
@@ -28,6 +40,9 @@ from model.convnextv2 import load_convNext
 import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
+
+print("이전 학습 종료 대기 중...")
+time.sleep(101*820)
 
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
@@ -237,7 +252,7 @@ else :
 criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.99):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.9):
     
     stage = 0
     layer_names = []
