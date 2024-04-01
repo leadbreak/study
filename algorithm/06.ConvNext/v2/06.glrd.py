@@ -214,7 +214,7 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.9998
+    ema_decay = 0.998
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,

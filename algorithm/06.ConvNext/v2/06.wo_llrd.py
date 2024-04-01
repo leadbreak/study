@@ -233,7 +233,7 @@ model.to(device)
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.9998
+    ema_decay = 0.998
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,
@@ -337,7 +337,7 @@ scheduler = CosineWarmupScheduler(optimizer,
                                 num_warmup_steps=warmup_steps, 
                                 num_training_steps=train_steps,
                                 num_cycles=0.5,
-                                min_lr=1e-7)
+                                min_lr=1e-6)
 # scheduler = transformers.get_cosine_schedule_with_warmup(optimizer, 
 #                                                         num_warmup_steps=warmup_steps, 
 #                                                         num_training_steps=train_steps,
