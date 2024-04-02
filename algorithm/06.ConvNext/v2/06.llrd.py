@@ -41,9 +41,6 @@ import math
 import warnings
 from torch.optim.lr_scheduler import _LRScheduler
 
-print("이전 학습 종료 대기 중...")
-time.sleep(101*820)
-
 class CosineWarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, num_training_steps, num_cycles=0.5, min_lr=1e-6, last_epoch=-1, verbose=False):
         self.num_warmup_steps = num_warmup_steps
@@ -233,7 +230,7 @@ if ema_active:
     )
     print(f"Using EMA with decay = {ema_decay}")
 
-model_path = ''
+model_path = '../../model/convnext/llrd.pt'
 
 mixup = True
 if mixup :
@@ -320,11 +317,10 @@ groups = [{'params': param,
             'lr' : param_groups[name]['lr'],
             'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
     
-
-epochs = 1000
+epochs = 300
 
 optimizer = optim.AdamW(groups)
-warmup_steps = int(len(train_loader)*(epochs)*0.1)
+warmup_steps = int(len(train_loader)*(epochs)*0.2)
 train_steps = len(train_loader)*(epochs)
 scheduler = CosineWarmupScheduler(optimizer, 
                                 num_warmup_steps=warmup_steps, 
@@ -392,7 +388,7 @@ for i in range(epochs // 100):
         total_loss = val_loss + epoch_loss
         if total_loss < best_loss:
             best_loss = total_loss
-            # torch.save(model.state_dict(), model_path)
+            torch.save(model.state_dict(), model_path)
             model_save = True
             save_text = ' - model saved!'
         else:
@@ -435,4 +431,34 @@ for i in range(epochs // 100):
     })
 
     # 데이터프레임 출력
-    print(f"\n[{i*100+100} epoch result]\n", performance_metrics)
+    print(f"\n[{i*100+100} epoch testset result]\n", performance_metrics)
+    
+    with torch.no_grad():
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs, 1)
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # 혼동 행렬 생성
+    cm = confusion_matrix(all_labels, all_preds)
+
+    # 예측과 실제 레이블
+    y_true = all_labels  # 실제 레이블
+    y_pred = all_preds  # 모델에 의해 예측된 레이블
+
+    # 전체 데이터셋에 대한 정확도
+    accuracy = accuracy_score(y_true, y_pred)
+
+    # 평균 정밀도, 리콜, F1-Score ('weighted')
+    precision, recall, f1_score, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted')
+
+    # 판다스 데이터프레임으로 결과 정리
+    performance_metrics = pd.DataFrame({
+        'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score'],
+        'Value': [accuracy, precision, recall, f1_score]
+    })
+
+    # 데이터프레임 출력
+    print(f"\n[{i*100+100} epoch total result]\n", performance_metrics)
