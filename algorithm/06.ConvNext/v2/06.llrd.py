@@ -250,6 +250,21 @@ criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
 '''
+scale=0.95
+[300 epoch testset result]
+       Metric     Value
+0   Accuracy  0.954000
+1  Precision  0.964012
+2     Recall  0.954000
+3   F1 Score  0.953124
+
+[300 epoch total result]
+       Metric     Value
+0   Accuracy  0.989280
+1  Precision  0.989375
+2     Recall  0.989280
+3   F1 Score  0.989279
+
 scale=0.9
 Loss: 1.9370, Val_Loss: 0.4581, Total Mean Loss: 1.1976, LR: 1e-06, Duration: 100.44 sec
 [300 epoch testset result]
