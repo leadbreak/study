@@ -19,6 +19,22 @@
 1  Precision  0.976786                                                                                                                                                                                
 2     Recall  0.972000                                                                                                                                                                                
 3   F1 Score  0.971263
+
+-------------------------
+[300 epoch testset result]
+       Metric     Value
+0   Accuracy  0.966000
+1  Precision  0.971310
+2     Recall  0.966000
+3   F1 Score  0.965051
+
+[300 epoch total result]
+       Metric     Value
+0   Accuracy  0.992138
+1  Precision  0.992183
+2     Recall  0.992138
+3   F1 Score  0.992139
+
 '''
 
 import torch

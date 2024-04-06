@@ -250,6 +250,21 @@ criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
 '''
+scale=0.97
+[300 epoch testset result]
+       Metric     Value
+0   Accuracy  0.962000
+1  Precision  0.970536
+2     Recall  0.962000
+3   F1 Score  0.961783
+
+[300 epoch total result]
+       Metric     Value
+0   Accuracy  0.991924
+1  Precision  0.991976
+2     Recall  0.991924
+3   F1 Score  0.991920
+
 scale=0.96
 [300 epoch testset result]
        Metric     Value
@@ -313,7 +328,7 @@ Loss: 2.1187, Val_Loss: 0.5810, Total Mean Loss: 1.3498, LR: 1e-06, Duration: 10
 3   F1 Score  0.968746
 '''
 
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.97):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.98):
     
     stage = 0
     layer_names = []
