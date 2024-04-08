@@ -250,6 +250,21 @@ criterion = nn.CrossEntropyLoss(label_smoothing=0.)
 
 # LLRD
 '''
+scale=0.99
+[300 epoch testset result]
+       Metric     Value
+0   Accuracy  0.966000
+1  Precision  0.973060
+2     Recall  0.966000
+3   F1 Score  0.965018
+
+[300 epoch total result]
+       Metric     Value
+0   Accuracy  0.993067
+1  Precision  0.993112
+2     Recall  0.993067
+3   F1 Score  0.993066
+
 scale=0.98
 [300 epoch testset result]
        Metric     Value
@@ -411,7 +426,7 @@ groups = [{'params': param,
             'lr' : param_groups[name]['lr'],
             'weight_decay': param_groups[name]['weight_decay']} for name, param in model.named_parameters()]
     
-epochs = 300
+epochs = 1000
 
 optimizer = optim.AdamW(groups)
 warmup_steps = int(len(train_loader)*(epochs)*0.2)
