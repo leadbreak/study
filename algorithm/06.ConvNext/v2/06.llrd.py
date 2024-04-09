@@ -220,10 +220,30 @@ max_norm = 3.0
 
 model.to(device)
 
+'''
+ema = 0.998
+[1000 epoch testset result]                                                                                                                                                                  
+       Metric     Value                                                                                                                                                                      
+0   Accuracy  0.960000                                                                                                                                                                       
+1  Precision  0.968048                                                                                                                                                                       
+2     Recall  0.960000                                                                                                                                                                       
+3   F1 Score  0.958628                                                                                                                                                                       
+                                                                                                                                                                                             
+[1000 epoch total result]                                                                                                                                                                    
+       Metric     Value                                                                                                                                                                      
+0   Accuracy  0.998142                                                                                                                                                                       
+1  Precision  0.998157                                                                                                                                                                       
+2     Recall  0.998142                                                                                                                                                                       
+3   F1 Score  0.998140  
+
+ema=0.9998
+
+'''
+
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.998
+    ema_decay = 0.9998
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,
