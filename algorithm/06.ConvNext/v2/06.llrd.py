@@ -237,13 +237,27 @@ ema = 0.998
 3   F1 Score  0.998140  
 
 ema=0.9998
+[1000 epoch testset result]
+       Metric     Value
+0   Accuracy  0.968000
+1  Precision  0.973952
+2     Recall  0.968000
+3   F1 Score  0.967167
 
+[1000 epoch total result]
+       Metric     Value
+0   Accuracy  0.998714
+1  Precision  0.998724
+2     Recall  0.998714
+3   F1 Score  0.998713
+
+ema=0.9999
 '''
 
 model_ema = None
 ema_active = True
 if ema_active:
-    ema_decay = 0.9998
+    ema_decay = 0.9999
     model_ema = ModelEmaV3(
         model,
         decay=ema_decay,
