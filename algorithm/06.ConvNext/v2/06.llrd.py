@@ -221,6 +221,28 @@ max_norm = 3.0
 model.to(device)
 
 '''
+scale=0.9 + ema=0.9999
+[1000 epoch testset result]
+       Metric     Value
+0   Accuracy  0.954000
+1  Precision  0.962095
+2     Recall  0.954000
+3   F1 Score  0.951709
+
+[1000 epoch total result]
+       Metric     Value
+0   Accuracy  0.997856
+1  Precision  0.997872
+2     Recall  0.997856
+3   F1 Score  0.997854
+
+scale=0.95 + ema=0.9999
+
+
+'''
+
+
+'''
 ema = 0.998
 [1000 epoch testset result]                                                                                                                                                                  
        Metric     Value                                                                                                                                                                      
@@ -374,13 +396,6 @@ Loss: 1.9370, Val_Loss: 0.4581, Total Mean Loss: 1.1976, LR: 1e-06, Duration: 10
 2     Recall  0.983634
 3   F1 Score  0.983618
 
-scale=0.9 + ema=0.9999
-
-
-scale=0.95 or 85 + ema=0.9999
-
-
-
 scale=0.8
 Loss: 2.1187, Val_Loss: 0.5810, Total Mean Loss: 1.3498, LR: 1e-06, Duration: 100.08 sec
 
@@ -399,7 +414,7 @@ Loss: 2.1187, Val_Loss: 0.5810, Total Mean Loss: 1.3498, LR: 1e-06, Duration: 10
 3   F1 Score  0.968746
 '''
 
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.9):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.95):
     
     stage = 0
     layer_names = []
