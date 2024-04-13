@@ -374,6 +374,13 @@ Loss: 1.9370, Val_Loss: 0.4581, Total Mean Loss: 1.1976, LR: 1e-06, Duration: 10
 2     Recall  0.983634
 3   F1 Score  0.983618
 
+scale=0.9 + ema=0.9999
+
+
+scale=0.95 or 85 + ema=0.9999
+
+
+
 scale=0.8
 Loss: 2.1187, Val_Loss: 0.5810, Total Mean Loss: 1.3498, LR: 1e-06, Duration: 100.08 sec
 
@@ -392,7 +399,7 @@ Loss: 2.1187, Val_Loss: 0.5810, Total Mean Loss: 1.3498, LR: 1e-06, Duration: 10
 3   F1 Score  0.968746
 '''
 
-def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.99):
+def LLRD_ConvNeXt(model, depths=[3,3,9,3], weight_decay=0.05, lr=8e-3, scale=0.9):
     
     stage = 0
     layer_names = []
