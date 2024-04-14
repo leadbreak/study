@@ -237,12 +237,24 @@ scale=0.9 + ema=0.9999
 3   F1 Score  0.997854
 
 scale=0.95 + ema=0.9999
+[1000 epoch testset result]
+       Metric     Value
+0   Accuracy  0.968000
+1  Precision  0.973619
+2     Recall  0.968000
+3   F1 Score  0.967465
 
+[1000 epoch total result]
+       Metric     Value
+0   Accuracy  0.998642
+1  Precision  0.998652
+2     Recall  0.998642
+3   F1 Score  0.998642
 
 '''
 
 
-'''
+'''scale=0.99
 ema = 0.998
 [1000 epoch testset result]                                                                                                                                                                  
        Metric     Value                                                                                                                                                                      
