@@ -27,9 +27,9 @@
 | 2024.01.19 | Quick GeLU | [code](/note/quick_gelu.ipynb) |
 | 2024.01.20-02.08 | Convolutional Vision Transformer | [blog](https://brunch.co.kr/@leadbreak/15) [code](/algorithm/05.CvT/) |
 | 2024.01.25 | 1x1 Conv vs Linear | [code](/note/pointwise_conv.ipynb) |
-| 2024.02.05-23 | ConvNeXt V1 | [blog](https://brunch.co.kr/@leadbreak/16) [code](/algorithm/06.ConvNext/v1) |
+| 2024.02.05-23 | ConvNeXt V1 | [blog](https://brunch.co.kr/@leadbreak/17) [code](/algorithm/06.ConvNext/v1) |
 | 2024.02.11 | layernorm | [code](/note/layernorm.ipynb) |
 | 2024.02.21 | EMA | [code](/note/ema.ipynb) |
 | 2024.02.22 | cosine scheduler with min lr | [code](/note/cosine_scheduler_with_lowerLimit.ipynb) |
 | 2024.02.22 | noisynn | [code](/note/noisynn.ipynb) |
-| 2024.02.26- | ConvNeXt V2 | [code](/algorithm/06.ConvNext/v2) |
+| 2024.02.26-04.16 | ConvNeXt V2 | [blog](https://brunch.co.kr/@leadbreak/19) [code](/algorithm/06.ConvNext/v2) |
