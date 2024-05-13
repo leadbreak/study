@@ -1,7 +1,8 @@
 ## Log
 | Date             | Content                              | Link |
 |------------------|--------------------------------------|------|
-| 2024.04.21-      | Understanding Diffusion Models       | [code](/algorithm/07.diffusion/01.Variational_AutoEncoder.ipynb) |
+| 2024.05.23-      | DDPM & DDIM                          | [code](/algorithm/07.diffusion/) |
+| 2024.04.21-05.21 | Understanding Diffusion Models       | [code](/algorithm/07.diffusion/01.Variational_AutoEncoder.ipynb) |
 | 2024.02.26-04.16 | ConvNeXt V2                          | [blog](https://brunch.co.kr/@leadbreak/19) [code](/algorithm/06.ConvNext/v2) |
 | 2024.02.22       | cosine scheduler with min lr         | [code](/note/cosine_scheduler_with_lowerLimit.ipynb) |
 | 2024.02.22       | noisynn                              | [code](/note/noisynn.ipynb) |
