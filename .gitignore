@@ -6,7 +6,7 @@ test.png
 # models
 *.keras
 *.pt
-*.pth
+# *.pth
 *.tf
 *.onnx
 
