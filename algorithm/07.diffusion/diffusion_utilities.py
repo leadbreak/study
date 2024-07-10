@@ -206,8 +206,8 @@ def plot_sample(x_gen_store,n_sample,nrows,save_dir, fn,  w, save=False):
     ani = FuncAnimation(fig, animate_diff, fargs=[nsx_gen_store],  interval=200, blit=False, repeat=True, frames=nsx_gen_store.shape[0]) 
     plt.close()
     if save:
-        ani.save(save_dir + f"{fn}_w{w}.gif", dpi=100, writer=PillowWriter(fps=5))
-        print('saved gif at ' + save_dir + f"{fn}_w{w}.gif")
+        ani.save(save_dir + f"{fn}_{w}.gif", dpi=100, writer=PillowWriter(fps=5))
+        print('saved gif at ' + save_dir + f"{fn}_{w}.gif")
     return ani
 
 
