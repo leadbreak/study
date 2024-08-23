@@ -10,7 +10,7 @@
 | 2024.02.21       | EMA                                  | [code](/note/ema.ipynb) |
 | 2024.02.11       | layernorm                            | [code](/note/layernorm.ipynb) |
 | 2024.02.05-23    | ConvNeXt V1                          | [blog](https://brunch.co.kr/@leadbreak/17) [code](/algorithm/06.ConvNext/v1) |
-| 2024.01.25       | 1x1 Conv vs Linear                   | [code](/note/pointwise_conv.ipynb) |
+| 2024.01.25       | 1x1 Conv 🆚 Linear                   | [code](/note/pointwise_conv.ipynb) |
 | 2024.01.20-02.08 | Convolutional Vision Transformer     | [blog](https://brunch.co.kr/@leadbreak/15) [code](/algorithm/05.CvT/) |
 | 2024.01.19       | Quick GeLU                           | [code](/note/quick_gelu.ipynb) |
 | 2024.01.02-18    | Swin Transformer V2                  | [blog](https://brunch.co.kr/@leadbreak/14) [code](/algorithm/04.Swin/) |
