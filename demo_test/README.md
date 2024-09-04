@@ -4,3 +4,4 @@
 ### Test List
 1. [magic-animate](https://github.com/magic-research/magic-animate/tree/main?tab=readme-ov-file)
 2. [LivePortrait](https://github.com/KwaiVGI/LivePortrait)
+3. [Korean-Bllossom-Vision-8B](https://huggingface.co/Bllossom/llama-3.1-Korean-Bllossom-Vision-8B)
