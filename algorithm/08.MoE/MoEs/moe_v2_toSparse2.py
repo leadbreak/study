@@ -7,28 +7,21 @@ class GatingNetwork(nn.Module):
         self.layer = nn.Linear(input_dim, num_experts)
         
     def forward(self, x):
-        return torch.softmax(self.layer(x), dim=-1)  # [batch_size, num_experts]
-
-class Expert(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(Expert, self).__init__()
-        # 전문가의 구조를 정의합니다.
-        self.layer = nn.Linear(input_dim, output_dim)
-        # 필요한 경우 활성화 함수를 추가할 수 있습니다.
-        # self.activation = nn.ReLU()
-        
-    def forward(self, x):
-        # return self.activation(self.layer(x))
-        return self.layer(x)
+        gate_logits = self.layer(x)  # [batch_size, num_experts]
+        gate_probs = torch.softmax(gate_logits, dim=-1)  # SoftMax 적용하여 확률 분포 생성
+        return gate_probs  # [batch_size, num_experts]
 
 class MoE(nn.Module):
     def __init__(self, input_dim, output_dim, num_experts, topk=2):
         super(MoE, self).__init__()
         self.num_experts = num_experts
         self.topk = topk
-        
-        # 전문가들을 nn.ModuleList로 관리합니다.
-        self.experts = nn.ModuleList([Expert(input_dim, output_dim) for _ in range(num_experts)])
+
+        # 모든 전문가를 하나의 큰 선형 계층으로 통합
+        self.experts = nn.Linear(input_dim, output_dim * num_experts)
+        nn.init.xavier_uniform_(self.experts.weight)
+        nn.init.zeros_(self.experts.bias)
+
         self.gate = GatingNetwork(input_dim, num_experts)
         
     def forward(self, x):
@@ -36,49 +29,33 @@ class MoE(nn.Module):
         x: [batch_size, input_dim]
         """
         batch_size = x.size(0)
-        output_dim = self.experts[0].layer.out_features
-        
-        # 게이트웨이 네트워크를 통해 각 전문가의 선택 확률 계산
-        gate_outputs = self.gate(x)  # [batch_size, num_experts]
-        
-        # 상위 topk개의 전문가 선택
-        top_k_values, top_k_indices = torch.topk(gate_outputs, self.topk, dim=-1)  # [batch_size, topk]
-        
-        # 선택된 전문가들의 출력을 저장할 텐서를 초기화합니다.
-        selected_expert_outputs = torch.zeros(batch_size, self.topk, output_dim, device=x.device)
-        
-        # 각 전문가에 대해 입력을 그룹화하여 계산
-        for i in range(self.topk):
-            # 현재 topk 위치에 해당하는 전문가 인덱스
-            expert_indices = top_k_indices[:, i]  # [batch_size]
-            expert_weights = top_k_values[:, i]   # [batch_size]
-            
-            # 전문가별로 입력을 모아서 계산합니다.
-            unique_expert_indices = expert_indices.unique()
-            for expert_idx in unique_expert_indices:
-                mask = (expert_indices == expert_idx)  # [batch_size]
-                indices = mask.nonzero(as_tuple=False).squeeze()  # 선택된 배치 인덱스
-                
-                if indices.numel() == 0:
-                    continue
-                
-                # 선택된 입력들
-                x_selected = x[indices]  # [selected_batch_size, input_dim]
-                # 해당 전문가의 출력 계산
-                expert = self.experts[expert_idx]
-                expert_output = expert(x_selected)  # [selected_batch_size, output_dim]
-                
-                # 출력 저장
-                selected_expert_outputs[indices, i, :] = expert_output
+        output_dim = self.experts.out_features // self.num_experts  # 각 전문가의 출력 차원
 
-        # 선택된 전문가의 가중치를 곱함
-        top_k_values = top_k_values.unsqueeze(-1)  # [batch_size, topk, 1]
-        weighted_expert_outputs = selected_expert_outputs * top_k_values  # [batch_size, topk, output_dim]
-        
-        # 최종 출력은 topk 전문가의 가중합
+        # 1. 게이팅 네트워크를 통해 각 전문가의 선택 확률 계산
+        gate_probs = self.gate(x)  # [batch_size, num_experts]
+
+        # 2. 상위 topk개의 전문가 선택
+        top_k_probs, top_k_indices = torch.topk(gate_probs, self.topk, dim=-1)  # [batch_size, topk]
+
+        # 3. 모든 전문가의 출력을 한 번에 계산
+        # 전문가들의 출력은 [batch_size, num_experts * output_dim]에서 [batch_size, num_experts, output_dim]으로 재배열
+        expert_outputs = self.experts(x)  # [batch_size, num_experts * output_dim]
+        expert_outputs = expert_outputs.view(batch_size, self.num_experts, output_dim)  # [batch_size, num_experts, output_dim]
+
+        # 4. 선택된 topk 전문가의 출력을 추출
+        # top_k_indices는 [batch_size, topk], 이를 이용해 배치별로 topk 전문가의 출력을 gather
+        # 먼저, 배치 인덱스를 생성하여 advanced indexing을 수행
+        batch_indices = torch.arange(batch_size).unsqueeze(1).expand(-1, self.topk).to(x.device)  # [batch_size, topk]
+        selected_expert_outputs = expert_outputs[batch_indices, top_k_indices]  # [batch_size, topk, output_dim]
+
+        # 5. 선택된 전문가의 가중치를 곱함
+        top_k_probs = top_k_probs.unsqueeze(-1)  # [batch_size, topk, 1]
+        weighted_expert_outputs = selected_expert_outputs * top_k_probs  # [batch_size, topk, output_dim]
+
+        # 6. 최종 출력은 topk 전문가의 가중합
         output = weighted_expert_outputs.sum(dim=1)  # [batch_size, output_dim]
-        
-        return output
+
+        return output  # [batch_size, output_dim]
 
 # 예시 사용법
 if __name__ == "__main__":
