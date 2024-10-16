@@ -1,3 +1,8 @@
+'''
+기본적인 Sparse MoE 구현
+topk1 only & ModuleList에 의한 전문가 관리로 비효율적임
+'''
+
 import torch
 import torch.nn as nn
 

@@ -3,6 +3,7 @@ sports/
 .vscode
 test.png
 demo_test/*/*
+*/*_data/
 
 # models
 *.keras
