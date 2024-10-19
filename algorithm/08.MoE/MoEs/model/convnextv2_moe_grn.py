@@ -5,37 +5,23 @@ from collections import OrderedDict
 from timm.models.layers import DropPath
 
 class GRN(nn.Module):
-    """ GRN (Global Response Normalization) layer """
-    def __init__(self, dim, ndim=4, eps=1e-6):
+    def __init__(self, dim, eps=1e-6):
         super(GRN, self).__init__()
-        self.ndim = ndim
-        if ndim == 4:
-            self.gamma = nn.Parameter(torch.zeros(1, 1, 1, dim))
-            self.beta = nn.Parameter(torch.zeros(1, 1, 1, dim))
-        elif ndim == 2:
-            self.gamma = nn.Parameter(torch.ones(1, dim))
-            self.beta = nn.Parameter(torch.zeros(1, dim))
-        else:
-            raise ValueError("ndim must be 2 or 4")
+        self.gamma = nn.Parameter(torch.ones(1, dim))
+        self.beta = nn.Parameter(torch.zeros(1, dim))
         self.eps = eps
 
     def forward(self, x):
-        if self.ndim == 4:
-            # x: [N, H, W, C]
-            Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True)  # [N, 1, 1, C]
-            Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + self.eps)  # [N, 1, 1, C]
-            x = self.gamma * (x * Nx) + self.beta + x
-        elif self.ndim == 2:
-            # x: [batch_size, dim]
-            Gx = torch.norm(x, p=2, dim=1, keepdim=True)  # [batch_size, 1]
-            Nx = Gx / (Gx.mean(dim=0, keepdim=True) + self.eps)  # [batch_size, 1]
-            x = self.gamma * (x * Nx) + self.beta
+        # x: [batch_size, dim]
+        Gx = torch.norm(x, p=2, dim=1, keepdim=True)  # [batch_size, 1]
+        Nx = Gx / (Gx.mean(dim=0, keepdim=True) + self.eps)  # [batch_size, 1]
+        x = self.gamma * (x * Nx) + self.beta
         return x
 
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
         return x * torch.sigmoid(1.702 * x)
-            
+    
 class LayerNorm(nn.Module):
     '''
     LayerNormalization for Channel First
@@ -49,7 +35,6 @@ class LayerNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
-        # x: [N, C, H, W]
         mean = x.mean(dim=1, keepdim=True)
         std = x.var(dim=1, keepdim=True, unbiased=False).sqrt()
         x = (x - mean) / (std + self.eps)
@@ -57,92 +42,91 @@ class LayerNorm(nn.Module):
         return x
 
 class MoE(nn.Module):
-    def __init__(self, input_dim, output_dim, num_experts=2, topk=1, noise_std=0.1):
+    def __init__(self, input_dim, output_dim, num_experts, topk=2, noise_std=0.1):
         super(MoE, self).__init__()
         self.num_experts = num_experts
         self.topk = topk
+        self.output_dim = output_dim
         self.noise_std = noise_std
-        self.output_dim = output_dim // num_experts  # Adjusted to divide by num_experts
-
-        assert output_dim % num_experts == 0, f"output_dim({output_dim}) should be divisible by num_experts({num_experts})"
-
-        # Experts
-        self.experts = nn.ModuleList([
-            nn.Linear(input_dim, self.output_dim)
-            for _ in range(num_experts)
-        ])
 
         # Gate Network
         self.gate = nn.Linear(input_dim, num_experts)
 
-        # GRN module (for 2D input)
-        self.grn = GRN(num_experts, ndim=2)
+        # 전문가 레이어
+        self.experts = nn.Linear(input_dim, output_dim * num_experts)
+
+        # GRN 모듈
+        self.grn = GRN(num_experts)
+
+        # 초기화
+        nn.init.xavier_uniform_(self.experts.weight)
+        nn.init.zeros_(self.experts.bias)
 
     def forward(self, x):
-        # x: [batch_size, input_dim]
-        # Gate logits
+        # Gate logits 계산
         gate_logits = self.gate(x)  # [batch_size, num_experts]
 
-        # Add noise
+        # 가우시안 노이즈 추가
         if self.noise_std > 0:
             noise = torch.randn_like(gate_logits) * self.noise_std
             gate_logits = gate_logits + noise
 
-        # Apply GRN
-        gate_logits = self.grn(gate_logits)  # [batch_size, num_experts]
+        # GRN 적용
+        gate_logits = self.grn(gate_logits)
 
-        # Gate probabilities
+        # Gate 확률 계산 (softmax)
         gate_probs = F.softmax(gate_logits, dim=-1)  # [batch_size, num_experts]
 
-        # Compute expert outputs
-        expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)  # [batch_size, num_experts, output_dim_per_expert]
+        # Top-K 전문가 선택
+        topk_probs, topk_indices = torch.topk(gate_probs, self.topk, dim=-1)  # [batch_size, topk]
 
-        # Gate probabilities applied to expert outputs
-        gate_probs = gate_probs.unsqueeze(-1)  # [batch_size, num_experts, 1]
-        x = (expert_outputs * gate_probs).sum(dim=1)  # [batch_size, output_dim_per_expert]
+        # 전문가 출력 계산
+        expert_outputs = self.experts(x)  # [batch_size, num_experts * output_dim]
+        expert_outputs = expert_outputs.view(-1, self.num_experts, self.output_dim)  # [batch_size, num_experts, output_dim]
 
-        # Restore output dimension
-        x = x.repeat(1, self.num_experts)  # [batch_size, output_dim]
-        return x
+        # 선택된 전문가의 출력 추출
+        selected_expert_outputs = torch.gather(
+            expert_outputs,
+            1,
+            topk_indices.unsqueeze(-1).expand(-1, -1, self.output_dim)
+        )  # [batch_size, topk, output_dim]
+
+        # 최종 출력 계산
+        output = torch.einsum('bk,bkd->bd', topk_probs, selected_expert_outputs)  # [batch_size, output_dim]
+
+        return output
+
 
 class Block(nn.Module):
 
     def __init__(self, dim, dp_rate):
         super(Block, self).__init__()
         
-        self.dim = dim
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)
         self.layernorm = nn.LayerNorm(dim)
-
-        # Adjusted output_dim to match parameter counts
-        self.moe = MoE(input_dim=dim, output_dim=dim * 4, num_experts=2, topk=1, noise_std=0.1)
-
+        self.pwconv1 = nn.Linear(dim, dim*4)
         self.act = QuickGELU()
-        self.grn = GRN(dim * 4, ndim=4)  # Adjusted GRN to match output dimension
-        self.pwconv2 = nn.Linear(dim * 4, dim)
+        self.grn = GRN(dim*4) # Global Response Normalization
+        self.pwconv2 = nn.Linear(dim*4, dim)
         
         # droppath(stochastic depth)
         self.droppath = DropPath(dp_rate) if dp_rate > 0. else nn.Identity()
 
     def forward(self, x):
-        identity = x  # [N, C, H, W]
-        x = self.dwconv(x)  # [N, C, H, W]
-        x = x.permute(0,2,3,1)  # [N, H, W, C]
-        x = self.layernorm(x)  # [N, H, W, C]
-
-        N, H, W, C = x.shape
-        x = x.reshape(-1, C)  # [N * H * W, C]
-        x = self.moe(x)  # [N * H * W, dim * 4]
-        x = x.reshape(N, H, W, -1)  # [N, H, W, dim * 4]
-
+        identity = x
+        x = self.dwconv(x)
+        x = x.permute(0,2,3,1) # (N, C, H, W) -> (N, H, W, C) : For Channel-wise norm
+        x = self.layernorm(x)
+        x = self.pwconv1(x)
         x = self.act(x)
-        x = self.grn(x)  # [N, H, W, dim * 4]
-        x = self.pwconv2(x)  # [N, H, W, dim]
-        x = x.permute(0,3,1,2)  # [N, C, H, W]
-
+        x = self.grn(x)
+        x = self.pwconv2(x)
+        x = x.permute(0,3,1,2) # (N, H, W, C) -> (N, C, H, W)
+        
         x = identity + self.droppath(x)
-
+        
         return x
+
 
 class ConvNeXtV2_MoE_GRN(nn.Module):
     def __init__(self,  
@@ -159,7 +143,7 @@ class ConvNeXtV2_MoE_GRN(nn.Module):
             ('stem_ln', LayerNorm(dims[0])),
         ]))
         
-        # downsample layers
+        # Downsample layers
         self.downsample_layers = nn.ModuleList()    
         self.downsample_layers.append(stem)    
         
@@ -170,7 +154,7 @@ class ConvNeXtV2_MoE_GRN(nn.Module):
                                 ]))
             self.downsample_layers.append(downsample_layer)
         
-        # stage layers
+        # Stage layers
         self.stages = nn.ModuleList()
         dp_rates = [x.item() for x in torch.linspace(0, droppath, sum(depths))]
         cur = 0
@@ -183,12 +167,13 @@ class ConvNeXtV2_MoE_GRN(nn.Module):
             
             cur += depths[i]
 
-        # Average pooling and classifier
+        # Average pooling and Fully Connected Layer (MoE로 대체)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.layernorm = nn.LayerNorm(dims[3])      # Channel Last Layernorm
-
-        # Adjusted MoE classifier
-        self.moe_fc = MoE(input_dim=dims[3], output_dim=num_classes, num_experts=1, topk=1, noise_std=0.1)
+        
+        # 최종 분류기만 MoE로 유지
+        self.moe = MoE(input_dim=dims[3], output_dim=dims[3], num_experts=8, topk=2, noise_std=0.1)
+        self.classifier = nn.Linear(dims[3], num_classes)
         
     def forward_features(self, x):
         for i in range(4):        
@@ -200,14 +185,14 @@ class ConvNeXtV2_MoE_GRN(nn.Module):
     def forward(self, x):
         x = self.forward_features(x)
 
-        x = self.avgpool(x)     # (N, C, 1, 1)
-        x = torch.flatten(x, 1) # (N, C)
+        x = self.avgpool(x)     # [N, C, 1, 1]
+        x = torch.flatten(x, 1) # [N, C]
         x = self.layernorm(x)
         
-        x = self.moe_fc(x)
+        x = self.moe(x)  # [N, N]
         
-        return x
-        
+        return self.classifier(x) # [N, num_classes]
+
 def load_convNext_moe_grn(dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100, **args):
     return ConvNeXtV2_MoE_GRN(dims=dims, depths=depths, num_classes=num_classes, **args)
 

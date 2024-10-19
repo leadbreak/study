@@ -5,17 +5,17 @@ from collections import OrderedDict
 from timm.models.layers import DropPath
 
 class GRN(nn.Module):
-    """ GRN (Global Response Normalization) layer """
-    def __init__(self, dim):
-        super().__init__()
-        self.gamma = nn.Parameter(torch.zeros(1, 1, 1, dim))
-        self.beta = nn.Parameter(torch.zeros(1, 1, 1, dim))
+    def __init__(self, dim, eps=1e-6):
+        super(GRN, self).__init__()
+        self.gamma = nn.Parameter(torch.ones(1, dim))
+        self.beta = nn.Parameter(torch.zeros(1, dim))
+        self.eps = eps
 
     def forward(self, x):
-        # x: [N, H, W, C]
-        Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True)  # [N, 1, 1, C]
-        Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-6)  # [N, 1, 1, C]
-        x = self.gamma * (x * Nx) + self.beta + x
+        # x: [batch_size, dim]
+        Gx = torch.norm(x, p=2, dim=1, keepdim=True)  # [batch_size, 1]
+        Nx = Gx / (Gx.mean(dim=0, keepdim=True) + self.eps)  # [batch_size, 1]
+        x = self.gamma * (x * Nx) + self.beta
         return x
 
 class QuickGELU(nn.Module):
@@ -35,36 +35,30 @@ class LayerNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
-        # x: [N, C, H, W]
         mean = x.mean(dim=1, keepdim=True)
         std = x.var(dim=1, keepdim=True, unbiased=False).sqrt()
         x = (x - mean) / (std + self.eps)
         x = x * self.weight[:, None, None] + self.bias[:, None, None]
         return x
 
+
 class MoE(nn.Module):
-    def __init__(self, input_dim, output_dim, num_experts=2, topk=1, noise_std=0.1):
+    def __init__(self, input_dim, output_dim, num_experts, topk=2, noise_std=0.1):
         super(MoE, self).__init__()
         self.num_experts = num_experts
         self.topk = topk
-        self.output_dim = output_dim // num_experts
+        self.output_dim = output_dim
         self.noise_std = noise_std  # 가우시안 노이즈의 표준편차
-
-        assert output_dim % num_experts == 0, f"output_dim({output_dim}) should be divisible by num_experts({num_experts})"
 
         # Gate Network
         self.gate = nn.Linear(input_dim, num_experts)
 
         # 전문가 레이어
-        self.experts = nn.ModuleList([
-            nn.Linear(input_dim, self.output_dim)
-            for _ in range(num_experts)
-        ])
+        self.experts = nn.Linear(input_dim, output_dim * num_experts)
 
         # 초기화
-        for expert in self.experts:
-            nn.init.xavier_uniform_(expert.weight)
-            nn.init.zeros_(expert.bias)
+        nn.init.xavier_uniform_(self.experts.weight)
+        nn.init.zeros_(self.experts.bias)
 
     def forward(self, x):
         # Gate logits 계산
@@ -98,62 +92,52 @@ class MoE(nn.Module):
         # Top-K 전문가 선택
         topk_probs, topk_indices = torch.topk(gate_probs, self.topk, dim=-1)  # [batch_size, topk]
 
-        # 각 전문가의 출력 계산
-        expert_outputs = []
-        for idx in range(self.num_experts):
-            expert_outputs.append(self.experts[idx](x))  # [batch_size, output_dim_per_expert]
-        expert_outputs = torch.stack(expert_outputs, dim=1)  # [batch_size, num_experts, output_dim_per_expert]
+        # 전문가 출력 계산
+        expert_outputs = self.experts(x)  # [batch_size, num_experts * output_dim]
+        expert_outputs = expert_outputs.view(-1, self.num_experts, self.output_dim)  # [batch_size, num_experts, output_dim]
 
         # 선택된 전문가의 출력 추출
         selected_expert_outputs = torch.gather(
             expert_outputs,
             1,
             topk_indices.unsqueeze(-1).expand(-1, -1, self.output_dim)
-        )  # [batch_size, topk, output_dim_per_expert]
+        )  # [batch_size, topk, output_dim]
 
         # 최종 출력 계산
-        output = torch.einsum('bk,bkd->bd', topk_probs, selected_expert_outputs)  # [batch_size, output_dim_per_expert]
-
-        # 출력 차원을 복원
-        output = output.repeat(1, self.num_experts)  # [batch_size, output_dim]
+        output = torch.einsum('bk,bkd->bd', topk_probs, selected_expert_outputs)  # [batch_size, output_dim]
 
         return output, load_balance_loss
-
+    
+    
 class Block(nn.Module):
 
     def __init__(self, dim, dp_rate):
         super(Block, self).__init__()
         
-        self.dim = dim
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)
         self.layernorm = nn.LayerNorm(dim)
-        self.moe = MoE(input_dim=dim, output_dim=dim*4, num_experts=2, topk=1, noise_std=0.1)
+        self.pwconv1 = nn.Linear(dim, dim*4)
         self.act = QuickGELU()
-        self.grn = GRN(dim*4)  # Global Response Normalization
+        self.grn = GRN(dim*4) # Global Response Normalization
         self.pwconv2 = nn.Linear(dim*4, dim)
         
         # droppath(stochastic depth)
         self.droppath = DropPath(dp_rate) if dp_rate > 0. else nn.Identity()
 
     def forward(self, x):
-        identity = x  # [N, C, H, W]
-        x = self.dwconv(x)  # [N, C, H, W]
-        x = x.permute(0,2,3,1)  # [N, H, W, C]
-        x = self.layernorm(x)  # [N, H, W, C]
-
-        N, H, W, C = x.shape
-        x = x.reshape(-1, C)  # [N * H * W, C]
-        x, lb_loss = self.moe(x)  # [N * H * W, dim * 4]
-        x = x.reshape(N, H, W, -1)  # [N, H, W, dim * 4]
-
+        identity = x
+        x = self.dwconv(x)
+        x = x.permute(0,2,3,1) # (N, C, H, W) -> (N, H, W, C) : For Channel-wise norm
+        x = self.layernorm(x)
+        x = self.pwconv1(x)
         x = self.act(x)
-        x = self.grn(x)  # [N, H, W, dim * 4]
-        x = self.pwconv2(x)  # [N, H, W, dim]
-        x = x.permute(0,3,1,2)  # [N, C, H, W]
-
+        x = self.grn(x)
+        x = self.pwconv2(x)
+        x = x.permute(0,3,1,2) # (N, H, W, C) -> (N, C, H, W)
+        
         x = identity + self.droppath(x)
-
-        return x, lb_loss
+        
+        return x
 
 class ConvNeXtV2_MoE(nn.Module):
     def __init__(self,  
@@ -170,7 +154,7 @@ class ConvNeXtV2_MoE(nn.Module):
             ('stem_ln', LayerNorm(dims[0])),
         ]))
         
-        # downsample layers
+        # Downsample layers
         self.downsample_layers = nn.ModuleList()    
         self.downsample_layers.append(stem)    
         
@@ -181,7 +165,7 @@ class ConvNeXtV2_MoE(nn.Module):
                                 ]))
             self.downsample_layers.append(downsample_layer)
         
-        # stage layers
+        # Stage layers
         self.stages = nn.ModuleList()
         dp_rates = [x.item() for x in torch.linspace(0, droppath, sum(depths))]
         cur = 0
@@ -194,35 +178,32 @@ class ConvNeXtV2_MoE(nn.Module):
             
             cur += depths[i]
 
-        # 평균 풀링과 Fully Connected Layer (MoE로 대체)
+        # Average pooling and Fully Connected Layer (MoE로 대체)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.layernorm = nn.LayerNorm(dims[3])      # Channel Last Layernorm
         
         # MoE로 최종 분류기 대체
-        self.moe_fc = MoE(input_dim=dims[3], output_dim=num_classes, num_experts=1, topk=1, noise_std=0.1)
+        self.moe = MoE(input_dim=dims[3], output_dim=dims[3], num_experts=8, topk=2, noise_std=0.1)
+        self.classifier = nn.Linear(dims[3], num_classes)
         
     def forward_features(self, x):
-        lb_losses = []
         for i in range(4):        
             x = self.downsample_layers[i](x)    
             for blk in self.stages[i]:
-                x, lb_loss = blk(x)
-                lb_losses.append(lb_loss)
-        return x, lb_losses
+                x = blk(x)
+        return x
 
     def forward(self, x):
-        x, lb_losses = self.forward_features(x)
+        x = self.forward_features(x)
 
-        x = self.avgpool(x)     # (N, C, 1, 1)
-        x = torch.flatten(x, 1) # (N, C)
+        x = self.avgpool(x)     # [N, C, 1, 1]
+        x = torch.flatten(x, 1) # [N, C]
         x = self.layernorm(x)
         
-        x, fc_lb_loss = self.moe_fc(x)
-        lb_losses.append(fc_lb_loss)
+        logits, fc_lb_loss = self.moe(x)  # [N, num_classes], [load_balance_loss]
         
-        total_lb_loss = torch.stack(lb_losses).mean()
-        return x, total_lb_loss
-    
+        return self.classifier(logits), fc_lb_loss
+
 def load_convNext_moe(dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100, **args):
     return ConvNeXtV2_MoE(dims=dims, depths=depths, num_classes=num_classes, **args)
 
@@ -231,7 +212,7 @@ if __name__ == "__main__":
     model = load_convNext_moe()
     x = torch.randn(2, 3, 224, 224)
     logits, lb_loss = model(x)
-    print("Logits shape:", logits.shape)
+    print("Logits shape:", logits.shape)  # 예상 출력: [2, 100]
     print("Load balancing loss:", lb_loss.item())
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total parameters: {total_params}")

@@ -8,17 +8,18 @@ from collections import OrderedDict
 from timm.models.layers import DropPath
 
 class GRN(nn.Module):
-    """ GRN (Global Response Normalization) layer
-    """
-    def __init__(self, dim):
-        super().__init__()
-        self.gamma = nn.Parameter(torch.zeros(1, 1, 1, dim))
-        self.beta = nn.Parameter(torch.zeros(1, 1, 1, dim))
+    def __init__(self, dim, eps=1e-6):
+        super(GRN, self).__init__()
+        self.gamma = nn.Parameter(torch.ones(1, dim))
+        self.beta = nn.Parameter(torch.zeros(1, dim))
+        self.eps = eps
 
     def forward(self, x):
-        Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True)
-        Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-6)
-        return self.gamma * (x * Nx) + self.beta + x
+        # x: [batch_size, dim]
+        Gx = torch.norm(x, p=2, dim=1, keepdim=True)  # [batch_size, 1]
+        Nx = Gx / (Gx.mean(dim=0, keepdim=True) + self.eps)  # [batch_size, 1]
+        x = self.gamma * (x * Nx) + self.beta
+        return x
 
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
@@ -115,7 +116,8 @@ class ConvNeXtV2(nn.Module):
         # 평균 풀링과 Fully Connected Layer
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.layernorm = nn.LayerNorm(dims[3])      # Channel Last Layernorm
-        self.fc = nn.Linear(dims[3], num_classes)
+        self.fc = nn.Linear(dims[3], dims[3]*8)
+        self.classifier = nn.Linear(dims[3]*8, num_classes)
         
     def forward_features(self, x):
         for i in range(4):        
@@ -130,7 +132,7 @@ class ConvNeXtV2(nn.Module):
         x = torch.flatten(x, 1) # (N, C, 1, 1) -> (N, C)
         x = self.layernorm(x)
         x = self.fc(x)
-        return x
+        return self.classifier(x)
     
 def load_convNext(dims=[96,192,384,768], depths=[3, 3, 9, 3], num_classes=100, **args):
     return ConvNeXtV2(dims=dims, depths=depths, num_classes=num_classes, **args)
