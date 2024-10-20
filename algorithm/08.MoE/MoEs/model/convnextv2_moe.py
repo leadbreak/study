@@ -183,7 +183,7 @@ class ConvNeXtV2_MoE(nn.Module):
         self.layernorm = nn.LayerNorm(dims[3])      # Channel Last Layernorm
         
         # MoE로 최종 분류기 대체
-        self.moe = MoE(input_dim=dims[3], output_dim=dims[3], num_experts=8, topk=2, noise_std=0.1)
+        self.moe = MoE(input_dim=dims[3], output_dim=dims[3], num_experts=8, topk=1, noise_std=0.1)
         self.classifier = nn.Linear(dims[3], num_classes)
         
     def forward_features(self, x):
