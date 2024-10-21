@@ -1,6 +1,6 @@
 # plus
 sports/
-.vscode
+.vscode/
 test.png
 demo_test/*/*
 */*_data/

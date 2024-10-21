@@ -1,3 +1,10 @@
+'''
+CUDA_VISIBLE_DEVICES=1 python3 train3.py --model convnext --epochs 1000 --lr 0.001
+CUDA_VISIBLE_DEVICES=2 python3 train3.py --model convnext_moe --epochs 1000 --lr 0.001 
+CUDA_VISIBLE_DEVICES=3 python3 train3.py --model convnext_moe_grn --epochs 1000 --lr 0.001
+'''
+
+
 import argparse
 import logging
 import sys
