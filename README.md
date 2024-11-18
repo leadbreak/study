@@ -27,9 +27,9 @@
 
 ### ✅To Read Paper
 ---
-- [ ] [DoRA: Weighted-Decomposed Low-Rank Adaptation](https://arxiv.org/abs/2402.09353)
-- [ ] [Evolutionary Optimization of Model Merging Recipes](https://github.com/SakanaAI/evolutionary-model-merge)
-- [ ] [Turbo Sparse](https://arxiv.org/abs/2406.05955?fbclid=IwZXh0bgNhZW0CMTEAAR2hhXDVrNHcccmPC3jd0F4PAi759oKtNjbHBs4nSY5wG1IgKMz5hfGHB4s_aem_ZmFrZWR1bW15MTZieXRlcw)
+- [ ] [LayerSkip: Enabling Early Exit Inference and Self-Speculative Decoding](https://arxiv.org/abs/2404.16710)
+- [ ] [Differential Transformer](https://arxiv.org/abs/2410.05258)
+- [ ] [Mamba](Mamba: Linear-Time Sequence Modeling with Selective State Spaces)
 - [X] [Kolmogorov-Arnold Network]( https://arxiv.org/pdf/2404.19756)
 - [X] [Mixture of Experts](https://arxiv.org/pdf/2407.06204)
 - [X] [DDPM](https://arxiv.org/abs/2006.11239)
