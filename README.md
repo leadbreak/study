@@ -1,6 +1,7 @@
 ### 📝Log
 | Date             | Content                              | Link |
 |------------------|--------------------------------------|------|
+| 2025.02.03-      | Differential Transformer             | In Progress... |
 | 2024.10.28-11.22 | Kolmogorov-Arnold Network            | [blog](https://brunch.co.kr/@leadbreak/24) [code](/algorithm/09.KAN/) |
 | 2024.08.06-10.21 | Mixture of Experts                   | [blog](https://brunch.co.kr/@leadbreak/23) [code](/algorithm/08.MoE/) |
 | 2024.05.23-07.28 | DDPM & DDIM                          | [blog](https://brunch.co.kr/@leadbreak/21) [code](/algorithm/07.diffusion/) |
@@ -11,7 +12,7 @@
 | 2024.02.21       | EMA                                  | [code](/note/ema.ipynb) |
 | 2024.02.11       | layernorm                            | [code](/note/layernorm.ipynb) |
 | 2024.02.05-23    | ConvNeXt V1                          | [blog](https://brunch.co.kr/@leadbreak/17) [code](/algorithm/06.ConvNext/v1) |
-| 2024.01.25       | 1x1 Conv 🆚 Linear                   | [code](/note/pointwise_conv.ipynb) |
+| 2024.01.25       | 1x1 Conv vs Linear                   | [code](/note/pointwise_conv.ipynb) |
 | 2024.01.20-02.08 | Convolutional Vision Transformer     | [blog](https://brunch.co.kr/@leadbreak/15) [code](/algorithm/05.CvT/) |
 | 2024.01.19       | Quick GeLU                           | [code](/note/quick_gelu.ipynb) |
 | 2024.01.02-18    | Swin Transformer V2                  | [blog](https://brunch.co.kr/@leadbreak/14) [code](/algorithm/04.Swin/) |
