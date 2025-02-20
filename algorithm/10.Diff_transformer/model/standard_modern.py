@@ -1,4 +1,4 @@
-d import pandas as pd
+import pandas as pd
 import time
 import torch
 from torch import nn, optim
