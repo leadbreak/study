@@ -123,9 +123,9 @@ def Train(llama: LLaMA, train_dl, val_dl, criterion, optimizer, params):
         print(f"| Epoch {ep+1}/{EPOCH} | Train: {train_loss:.5f} | Val: {val_loss:.5f} | LR: {lr:.8f} | {elapsed:.2f}s")
         sample_idx = random.randint(0, len(val_dl.dataset) - 1)
         sample_src, sample_tgt = val_dl.dataset[sample_idx]
-        generated_translation = llama.generate(sample_src)
         print("=== Random Sample Generation ===")
         print("원문 => 번역:", sample_src, "=>", sample_tgt)
+        generated_translation = llama.generate(sample_src)
         print("┗생성된 번역:", generated_translation)
         print("=" * 80)
     # 저장 코드 (필요 시 주석 해제)
@@ -137,12 +137,12 @@ def Train(llama: LLaMA, train_dl, val_dl, criterion, optimizer, params):
 @click.option('--epoch', default=10, help='학습 에포크')
 @click.option('--device', default='cuda:0', help='디바이스')
 @click.option('--model_size', default='base', help="['base' 또는 'small']")
-@click.option('--criterion_type', default='lsce', help="['ce' 또는 'lsce']")
+@click.option('--criterion_type', default='ce', help="['ce' 또는 'lsce']")
 @click.option('--label_smoothing', default=0.1, help='Label Smoothing 비율')
-@click.option('--max_seq_len', default=64, help='최대 시퀀스 길이')
+@click.option('--max_seq_len', default=80, help='최대 시퀀스 길이')
 @click.option('--grad_clip', default=1.0, help='Gradient clipping 임계값')
 @click.option('--base_lr', default=1e-5, type=float, help='스케줄러 Base LR')
-@click.option('--max_lr', default=3e-4, type=float, help='스케줄러 Max LR')
+@click.option('--max_lr', default=5e-3, type=float, help='스케줄러 Max LR')
 def main(batch, epoch, device, model_size, criterion_type, label_smoothing, max_seq_len, grad_clip, base_lr, max_lr):
     click.echo(click.style("Train LLaMA 시작", fg="green", bold=True))
     params = ModelArgs()
@@ -151,14 +151,14 @@ def main(batch, epoch, device, model_size, criterion_type, label_smoothing, max_
     params.MAX_SEQ_LEN = max_seq_len
     params.grad_clip = grad_clip
     if model_size == 'base':
-        params.DIM = 512
-        params.FFN_DIM = params.DIM * 2
+        params.DIM = 386
+        params.FFN_DIM = params.DIM * 4
         params.NUM_LAYERS = 6
         params.NUM_HEADS = 8
         params.NUM_KV_HEADS = 4
         params.NUM_KV_HEAD_REP = params.NUM_HEADS // params.NUM_KV_HEADS
         params.HEAD_DIM = params.DIM // params.NUM_HEADS
-        warmup_steps = 4000
+        warmup_steps = 10000
     else:
         params.DIM = 256
         params.NUM_LAYERS = 4

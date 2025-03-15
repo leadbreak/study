@@ -34,7 +34,7 @@ class ModelArgs:
 # torch.set_default_dtype(torch.bfloat16)
 # torch.set_default_device(ModelArgs.DEVICE)
 
-args = ModelArgs()
+# args = ModelArgs()
 
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
@@ -151,6 +151,7 @@ class Transformer(nn.Module):
         self.norm = RMSNorm(args.DIM, args.NORM_EPS)
         self.output = nn.Linear(args.DIM, args.VOCAB_SIZE, bias=False)
         self.freqs_cis = precompute_freqs_cis(args.HEAD_DIM, args.MAX_SEQ_LEN, args.ROPE_THETA, args.DEVICE)
+        self.device = args.DEVICE
         
     def forward_train(self, x: torch.Tensor, start_pos):
         B, L = x.shape
@@ -159,8 +160,8 @@ class Transformer(nn.Module):
         
         mask = None
         if L > 1:
-            mask = torch.full((L, L), float('-inf'), device=self.args.DEVICE)
-            mask = torch.triu(mask, 1).to(self.args.DEVICE)
+            mask = torch.full((L, L), float('-inf'), device=self.device)
+            mask = torch.triu(mask, 1).to(self.device)
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask) # [B, L, D]
         return self.output(self.norm(h)).float()
@@ -173,8 +174,8 @@ class Transformer(nn.Module):
         
         mask = None
         if L > 1:
-            mask = torch.full((L, L), float('-inf'), device=self.args.DEVICE)
-            mask = torch.triu(mask, 1).to(self.args.DEVICE)
+            mask = torch.full((L, L), float('-inf'), device=self.device)
+            mask = torch.triu(mask, 1).to(self.device)
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask) # [B, L, D]
         return self.output(self.norm(h)).float()
@@ -282,7 +283,10 @@ class LLaMA:
                 else:
                     context = seq[:, -self.args.MAX_SEQ_LEN:]
                     start_pos = seq.size(1) - self.args.MAX_SEQ_LEN
-                logits = self.model.forward(context, start_pos)
+                    print('scout: ', start_pos)
+                    raise
+                # logits = self.model.forward(context, start_pos)
+                logits = self.model.forward(context, start_pos=0)
                 next_logits = logits[:, -1, :].clone() / temperature
                 if (seq.size(1) - prefix_len) < min_new_tokens:
                     next_logits[:, self.tokenizer.eos_token_id] = -float('inf')
@@ -307,8 +311,8 @@ class LLaMA:
         return best_seq
 
     # 외부 인터페이스: prompt를 입력받아 번역 문자열 생성
-    def generate(self, prompt: str, max_new_tokens: int = 50, beam_width: int = 1,
-                 temperature: float = 0.7, top_p: float = 0.95, repetition_penalty: float = 1.1,
+    def generate(self, prompt: str, max_new_tokens: int = 40, beam_width: int = 1,
+                 temperature: float = 1.0, top_p: float = 0.95, repetition_penalty: float = 1.1,
                  min_new_tokens: int = 5) -> str:
         prompt = prompt.strip()
         if not prompt.endswith(" =>"):
@@ -351,7 +355,7 @@ class LLaMA:
 
 
 if __name__ == '__main__':
-    params = args
+    params = ModelArgs()
     tokenizer = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-ko-en")
     params.VOCAB_SIZE = tokenizer.vocab_size
     model = Transformer(params)
