@@ -16,7 +16,7 @@ class ModelArgs:
     NUM_LAYERS = 4 # LLaMA: 64
 
     NUM_KV_HEADS = NUM_HEADS // 2 # LLaMA: 8
-    VOCAB_SIZE = -1 # LLaMA: 128256 - decised by the tokenizer
+    VOCAB_SIZE = -1 # LLaMA: 128256 - decided by the tokenizer
     NORM_EPS = 1e-5 # LLaMA: 1e-5
     ROPE_THETA = 10000 # LLaMA: 500000, ROPOMER: 10000
 
@@ -118,7 +118,7 @@ class SelfAttention(nn.Module):
         self.cache_v[:B, start_pos:start_pos+L] = xv
         
         # GQA 
-        # Qeury: [B, n_heads, L, head_dim] -> [B, L, n_heads, head_dim]
+        # Query: [B, n_heads, L, head_dim] -> [B, L, n_heads, head_dim]
         xq = xq.transpose(1, 2)
         # Key & Value: [B, n_kv_heads, L, head_dim] -> [B, n_heads, L, head_dim] -> [B, L, n_heads, head_dim]
         xk = torch.repeat_interleave(xk, repeats=self.n_rep, dim=2).transpose(1, 2)
@@ -285,7 +285,6 @@ class LLaMA:
                     start_pos = seq.size(1) - self.args.MAX_SEQ_LEN
                     print('scout: ', start_pos)
                     raise
-                # logits = self.model.forward(context, start_pos)
                 logits = self.model.forward(context, start_pos=0)
                 next_logits = logits[:, -1, :].clone() / temperature
                 if (seq.size(1) - prefix_len) < min_new_tokens:
