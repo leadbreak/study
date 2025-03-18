@@ -141,7 +141,7 @@ def Train(llama: LLaMA, train_dl, val_dl, criterion, optimizer, params):
 @click.option('--label_smoothing', default=0.1, help='Label Smoothing 비율')
 @click.option('--max_seq_len', default=80, help='최대 시퀀스 길이')
 @click.option('--grad_clip', default=1.0, help='Gradient clipping 임계값')
-@click.option('--base_lr', default=1e-5, type=float, help='스케줄러 Base LR')
+@click.option('--base_lr', default=1e-6, type=float, help='스케줄러 Base LR')
 @click.option('--max_lr', default=5e-3, type=float, help='스케줄러 Max LR')
 def main(batch, epoch, device, model_size, criterion_type, label_smoothing, max_seq_len, grad_clip, base_lr, max_lr):
     click.echo(click.style("Train LLaMA 시작", fg="green", bold=True))
@@ -158,7 +158,7 @@ def main(batch, epoch, device, model_size, criterion_type, label_smoothing, max_
         params.NUM_KV_HEADS = 4
         params.NUM_KV_HEAD_REP = params.NUM_HEADS // params.NUM_KV_HEADS
         params.HEAD_DIM = params.DIM // params.NUM_HEADS
-        warmup_steps = 10000
+        warmup_steps = 100000
     else:
         params.DIM = 256
         params.NUM_LAYERS = 4

@@ -102,6 +102,8 @@ class SelfAttention(nn.Module):
         # KV Cache
         self.cache_k = torch.zeros(batch, seq_len, n_kv_heads, self.head_dim, device=device)
         self.cache_v = torch.zeros(batch, seq_len, n_kv_heads, self.head_dim, device=device)
+        
+        self.norm = RMSNorm(self.head_dim)
 
     def forward(self, x: torch.Tensor, start_pos, freqs_cis: torch.Tensor, mask):
         B, L, _ = x.shape
