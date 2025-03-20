@@ -18,7 +18,7 @@ class ModelArgs:
     NUM_KV_HEADS = NUM_HEADS // 2 # LLaMA: 8
     VOCAB_SIZE = -1 # LLaMA: 128256 - decided by the tokenizer
     NORM_EPS = 1e-5 # LLaMA: 1e-5
-    ROPE_THETA = 10000 # LLaMA: 500000, ROPOMER: 10000
+    ROPE_THETA = 10000 # LLaMA: 10000
 
     MAX_BATCH_SIZE = 8 # depending on the GPU memory
     MAX_SEQ_LEN = 64 # depending on the DATASET
