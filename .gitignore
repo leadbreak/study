@@ -5,6 +5,7 @@ test.png
 demo_test/*/*
 */*_data/
 algorithm/08.MoE/MoEs/cifar10_data/
+*.zip
 
 # models
 *.keras
