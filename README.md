@@ -1,7 +1,7 @@
 ### 📝Log
 | Date             | Content                              | Link |
 |------------------|----------------------------------------|------|
-| 2025.03.25-      | [Paper] Mamba                          | In Progress... |
+| 2025.03.25-04.13 | [Paper] Mamba                          | [blog](https://brunch.co.kr/@leadbreak/25) [code](/algorithm/11.Mamba) |
 | 2025.02.03-03.21 | [Paper] Differential Transformer       | [blog](https://brunch.co.kr/@leadbreak/22) [code](/algorithm/10.Diff_transformer) |
 | 2024.10.28-11.22 | [Paper] Kolmogorov-Arnold Network      | [blog](https://brunch.co.kr/@leadbreak/24) [code](/algorithm/09.KAN/) |
 | 2024.08.06-10.21 | [Paper] Mixture of Experts             | [blog](https://brunch.co.kr/@leadbreak/23) [code](/algorithm/08.MoE/) |
