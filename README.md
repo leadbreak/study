@@ -1,7 +1,7 @@
 ### 📝Log
 | Date             | Content                              | Link |
 |------------------|----------------------------------------|------|
-| 2025.04.09-      | [Paper] minRNN                         | [blog](https://brunch.co.kr/@leadbreak/26) [code](/algorithm/12.minRNN) |
+| 2025.04.09-06.11 | [Paper] minRNN                         | [blog](https://brunch.co.kr/@leadbreak/26) [code](/algorithm/12.minRNN) |
 | 2025.04.07-      | Deep Learning Training Note            | [code](/python/dl_training_note.ipynb) |
 | 2025.03.25-04.13 | [Paper] Mamba                          | [blog](https://brunch.co.kr/@leadbreak/25) [code](/algorithm/11.Mamba) |
 | 2025.02.03-03.21 | [Paper] Differential Transformer       | [blog](https://brunch.co.kr/@leadbreak/22) [code](/algorithm/10.Diff_transformer) |
@@ -31,7 +31,8 @@
 
 ### ✅To Read Paper
 ---
-- [ ] [Were RNNs All We Needed?](https://arxiv.org/html/2410.01201v1)
+- [ ] [TabPFN](https://github.com/PriorLabs/TabPFN)
+- [X] [Were RNNs All We Needed?](https://arxiv.org/html/2410.01201v1)
 - [X] [Mamba](https://arxiv.org/abs/2312.00752)
 - [X] [Differential Transformer](https://arxiv.org/abs/2410.05258)
 - [X] [Kolmogorov-Arnold Network]( https://arxiv.org/pdf/2404.19756)
