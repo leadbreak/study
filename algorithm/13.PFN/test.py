@@ -111,7 +111,7 @@ class GaussianNoise(nn.Module):
         # 훈련 모드이고 stddev가 0이 아닐 때만 노이즈를 추가합니다.
         if self.training and self.stddev != 0:
             # 1. 표준 정규 분포에서 노이즈를 샘플링합니다.
-            random_multiplier = 3 * (torch.rand(1, device=x.device) * 2 - 1)  # -3에서 3 사이의 값
+            random_multiplier = 3 * (torch.rand(1, device=x.device) * 2 - 1)  # -4에서 4 사이의 값
             noise = torch.randn_like(x) * self.stddev * random_multiplier
             
             # 2. 노이즈를 입력 텐서에 더해줍니다.
@@ -122,7 +122,7 @@ class GaussianNoise(nn.Module):
 
 
 class PosteriorInferenceViT(nn.Module):
-    def __init__(self, n_way, emb_size=512, num_heads=8, num_backbone_layers=6, num_inference_layers=4, noise_stddev=3e-3, add_noise=True):
+    def __init__(self, n_way, emb_size=512, num_heads=8, num_backbone_layers=6, num_inference_layers=4, noise_stddev=1e-3, add_noise=True):
         super().__init__()
         self.n_way = n_way
         self.backbone = VisionTransformerEncoder(emb_size=emb_size, num_heads=num_heads, num_layers=num_backbone_layers)
