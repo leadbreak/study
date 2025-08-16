@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hymba 성능 분석</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+        .gradient-text { background: linear-gradient(to right, #0077B6, #00B4D8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .nav-link { @apply px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-blue-100 hover:text-blue-800 transition-colors; }
+        .nav-link.active { @apply bg-blue-600 text-white hover:bg-blue-700; }
+        .content-card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); padding: 2.5rem; border: 1px solid #e5e7eb; }
+        h2 { @apply text-3xl font-bold text-gray-800 mb-4 border-l-4 border-blue-500 pl-4; }
+        p { @apply text-gray-700 leading-relaxed; }
+        .stat-number { @apply text-6xl font-bold text-[#0077B6]; }
+        .chart-container-radar { position: relative; width: 100%; max-width: 500px; margin-left: auto; margin-right: auto; height: 50vh; max-height: 450px; }
+    </style>
+</head>
+<body class="text-gray-800">
+    <header class="bg-white/90 backdrop-blur-sm sticky top-0 z-50 shadow-md">
+        <nav class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <a href="./index.html" class="text-xl font-bold gradient-text">Hymba Research</a>
+            <div id="nav-links" class="hidden md:flex items-center space-x-2">
+                <a href="./index.html" class="nav-link">개요</a>
+                <a href="./principles.html" class="nav-link">핵심 원리</a>
+                <a href="./components.html" class="nav-link">구성 요소</a>
+                <a href="./performance.html" class="nav-link">성능</a>
+                <a href="./code.html" class="nav-link">코드</a>
+                <a href="./dpo.html" class="nav-link">학습 방법 (DPO)</a>
+                <a href="./quiz.html" class="nav-link">퀴즈</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-4 py-12">
+        <h1 class="text-4xl font-bold text-center mb-16 gradient-text">Hymba 성능 및 효율성</h1>
+
+        <div class="space-y-12 max-w-4xl mx-auto">
+            <div class="content-card">
+                <h2>효율성 이득의 해부: 캐시 크기와 처리량</h2>
+                <p>
+                    Hymba는 캐시 크기와 처리량 측면에서 기존 트랜스포머 모델 대비 상당한 이점을 보입니다. 이러한 효율성 이득은 여러 아키텍처적 결정들의 복합적인 결과입니다.
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 text-center">
+                    <div class="p-6 bg-blue-50 rounded-lg">
+                        <p class="stat-number">11.67x</p>
+                        <p class="text-xl font-medium text-gray-700 mt-2">KV 캐시 크기 감소</p>
+                        <p class="text-gray-500 mt-2">이는 더 긴 문맥(수십만 토큰)을 처리할 수 있게 하고, 제한된 VRAM을 가진 GPU에서도 모델을 실행할 수 있음을 의미합니다.</p>
+                    </div>
+                    <div class="p-6 bg-cyan-50 rounded-lg">
+                        <p class="stat-number text-[#00B4D8]">3.49x</p>
+                        <p class="text-xl font-medium text-gray-700 mt-2">처리량 향상</p>
+                        <p class="text-gray-500 mt-2">같은 시간 동안 더 많은 요청을 처리할 수 있어, 모델을 서비스로 제공할 때의 운영 비용을 크게 절감할 수 있습니다.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-card">
+                <h2>종합 성능 비교 (개념적)</h2>
+                <p>
+                    Hymba는 특정 지표에서만 뛰어난 것이 아니라, 여러 핵심 평가 영역에서 균형 잡힌 강점을 보입니다. 아래 레이더 차트는 기존 트랜스포머와 Hymba의 강점을 개념적으로 비교한 것입니다.
+                </p>
+                <div class="mt-8 chart-container-radar">
+                    <canvas id="performanceRadarChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Navigation active state
+    const navLinks = document.querySelectorAll('#nav-links .nav-link');
+    const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+    navLinks.forEach(link => {
+        if (link.getAttribute('href').includes(currentPage)) {
+            link.classList.add('active');
+        }
+    });
+
+    const performanceRadarCtx = document.getElementById('performanceRadarChart').getContext('2d');
+    new Chart(performanceRadarCtx, {
+        type: 'radar',
+        data: {
+            labels: ['긴 문맥 처리', '추론 속도', '메모리 효율성', '단문 추론 능력', '파인튜닝 안정성'],
+            datasets: [{
+                label: '표준 트랜스포머',
+                data: [3, 4, 2, 9, 6],
+                fill: true,
+                backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                borderColor: 'rgb(239, 68, 68)',
+                pointBackgroundColor: 'rgb(239, 68, 68)',
+            }, {
+                label: 'Hymba',
+                data: [9, 8, 9, 8, 8],
+                fill: true,
+                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                borderColor: 'rgb(59, 130, 246)',
+                pointBackgroundColor: 'rgb(59, 130, 246)',
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: { display: true, text: '아키텍처별 강점 비교 (10점 만점)' }
+            },
+            scales: {
+                r: {
+                    angleLines: { display: false },
+                    suggestedMin: 0,
+                    suggestedMax: 10
+                }
+            }
+        }
+    });
+});
+</script>
+</body>
+</html>

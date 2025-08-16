@@ -9,90 +9,73 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- Chosen Palette: Brilliant Blues -->
-    <!-- Application Structure Plan: The infographic follows a logical narrative flow designed for clear storytelling. It starts with the core problem (The LLM Dilemma), presents Hymba's innovative solution (The Hymba Paradigm), breaks down its mechanics (Anatomy of a Hymba Layer), showcases the quantitative results (Performance Revolution), and concludes with the synergy concept (The Symphony of Specialists). This top-down approach guides the user from the high-level concept to the detailed benefits, making a complex topic digestible. -->
-    <!-- Visualization & Content Choices: 1. LLM Dilemma -> Goal: Change -> Line Chart -> Justification: Visually demonstrates the critical O(N^2) vs O(N) complexity issue over sequence length. (Chart.js, NO SVG). 2. Hymba Paradigm -> Goal: Organize -> HTML/CSS Flowchart -> Justification: Clearly illustrates the novel parallel data flow, which is the core innovation. (NO SVG/Mermaid). 3. Performance -> Goal: Compare/Inform -> Bar Chart & Big Numbers -> Justification: Provides immediate, high-impact visualization of Hymba's efficiency gains (cache size, throughput) against a baseline. (Chart.js, NO SVG). 4. Division of Labor -> Goal: Compare -> Styled Cards with Unicode Icons -> Justification: Creates a clear, memorable distinction between the roles of SSM and Attention. (NO SVG). -->
-    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
     <style>
-        body {
-            font-family: 'Noto Sans KR', sans-serif;
-            background-color: #f8fafc; /* Tailwind's gray-50 */
-        }
-        .chart-container {
-            position: relative;
-            width: 100%;
-            max-width: 700px;
-            margin-left: auto;
-            margin-right: auto;
-            height: 45vh;
-            max-height: 450px;
-        }
-        .gradient-text {
-            background: linear-gradient(to right, #0077B6, #00B4D8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .section-card {
-            background-color: white;
-            border-radius: 0.75rem;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            padding: 2rem;
-            margin-bottom: 3rem;
-        }
-        .flow-arrow {
-            font-size: 2rem;
-            color: #90E0EF;
-            line-height: 1;
-        }
-        .flow-box {
-            border: 2px solid #CAF0F8;
-            background-color: #CAF0F840;
-            padding: 0.75rem 1.5rem;
-            border-radius: 0.5rem;
-            text-align: center;
-            font-weight: 500;
-            color: #0077B6;
-        }
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+        .chart-container { position: relative; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; height: 50vh; max-height: 500px; }
+        .gradient-text { background: linear-gradient(to right, #0077B6, #00B4D8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .section-card { background-color: white; border-radius: 0.75rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); padding: 2.5rem; margin-bottom: 3rem; border: 1px solid #e5e7eb; }
+        .flow-arrow { font-size: 2rem; color: #90E0EF; line-height: 1; }
+        .flow-box { border: 2px solid #CAF0F8; background-color: #f0f9ff; padding: 0.75rem 1.5rem; border-radius: 0.5rem; text-align: center; font-weight: 500; color: #0369a1; }
+        .nav-link { @apply px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-blue-100 hover:text-blue-800 transition-colors; }
+        .nav-link.active { @apply bg-blue-600 text-white hover:bg-blue-700; }
     </style>
 </head>
 <body class="text-gray-800">
 
-    <main class="container mx-auto px-4 py-12 md:py-20">
+    <header class="bg-white/90 backdrop-blur-sm sticky top-0 z-50 shadow-md">
+        <nav class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <a href="./index.html" class="text-xl font-bold gradient-text">Hymba Research</a>
+            <div id="nav-links" class="hidden md:flex items-center space-x-2">
+                <a href="./index.html" class="nav-link">개요</a>
+                <a href="./principles.html" class="nav-link">핵심 원리</a>
+                <a href="./components.html" class="nav-link">구성 요소</a>
+                <a href="./performance.html" class="nav-link">성능</a>
+                <a href="./code.html" class="nav-link">코드</a>
+                <a href="./dpo.html" class="nav-link">학습 방법 (DPO)</a>
+                <a href="./quiz.html" class="nav-link">퀴즈</a>
+            </div>
+        </nav>
+    </header>
 
-        <!-- Hero Section -->
+    <main class="container mx-auto px-4 py-12 md:py-20">
         <section class="text-center mb-20">
             <h1 class="text-4xl md:text-6xl font-bold gradient-text mb-4">Hymba 아키텍처</h1>
-            <p class="text-xl md:text-2xl text-gray-600 max-w-3xl mx-auto">고성능 리콜과 초효율 요약의 완벽한 융합</p>
+            <p class="text-xl md:text-2xl text-gray-600 max-w-3xl mx-auto">고성능 리콜과 초효율 요약의 완벽한 융합: 차세대 소형 언어 모델의 청사진</p>
         </section>
 
-        <!-- The LLM Dilemma Section -->
         <section class="section-card">
             <h2 class="text-3xl font-bold text-center mb-2 text-[#0077B6]">현대 LLM의 딜레마: 성능 vs. 효율</h2>
             <p class="text-center text-gray-600 max-w-3xl mx-auto mb-10">
-                기존 어텐션 메커니즘은 시퀀스 길이가 길어질수록 계산 비용이 기하급수적으로 증가($O(N^2)$)하는 반면, SSM은 선형적($O(N)$)으로 증가합니다. 이는 긴 문맥을 처리하는 데 있어 근본적인 한계를 야기합니다.
+                기존 어텐션 메커니즘은 모든 토큰 쌍을 비교하여 높은 성능을 달성하지만, 시퀀스 길이가 길어질수록 계산 비용이 기하급수적으로 증가($O(N^2)$)합니다. 반면, Mamba와 같은 SSM은 선형적($O(N)$)으로 증가하여 효율적입니다. 아래 슬라이더를 움직여 그 차이를 직접 확인해보세요.
             </p>
             <div class="chart-container">
                 <canvas id="complexityChart"></canvas>
             </div>
+            <div class="mt-8 max-w-xl mx-auto">
+                <label for="sequenceLength" class="block text-center font-medium text-gray-700">시퀀스 길이 (N): <span id="sequenceLengthValue" class="font-bold text-[#5D7D9A]">1024</span></label>
+                <input id="sequenceLength" type="range" min="64" max="4096" step="64" value="1024" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <div id="complexity-text" class="mt-4 text-center text-gray-700 bg-gray-50 p-4 rounded-lg max-w-xl mx-auto">
+                결과를 여기에 표시합니다.
+            </div>
         </section>
 
-        <!-- The Hymba Paradigm Section -->
         <section class="section-card">
             <h2 class="text-3xl font-bold text-center mb-10 text-[#0077B6]">Hymba 패러다임: 병렬 하이브리드 헤드</h2>
             <p class="text-center text-gray-600 max-w-3xl mx-auto mb-12">
-                Hymba는 어텐션과 SSM을 순차적으로 쌓는 대신, 동일한 레이어 내에서 병렬로 처리합니다. 동일한 입력이 두 메커니즘에 동시에 노출되어, 모델이 '정밀 검색'과 '맥락 요약'을 동시에 수행하고 그 결과를 최적으로 결합하는 법을 학습합니다.
+                Hymba의 핵심 혁신은 어텐션과 SSM을 순차적으로 쌓는 대신, 동일한 레이어 내에서 병렬로 처리하는 '하이브리드 헤드'에 있습니다. 동일한 입력이 두 메커니즘에 동시에 노출되어, 모델이 '정밀 검색(어텐션)'과 '맥락 요약(SSM)'을 동시에 수행하고 그 결과를 최적으로 결합하는 법을 학습합니다.
             </p>
             <div class="flex flex-col items-center space-y-4">
                 <div class="flow-box">입력 (x)</div>
                 <div class="flow-arrow">↓</div>
                 <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="flex flex-col items-center space-y-4">
+                    <div class="flex flex-col items-center space-y-4 p-4 bg-gray-50 rounded-lg">
                         <div class="flow-box w-full">🔍 어텐션 헤드 ("Fact-Checker")</div>
-                        <p class="text-sm text-gray-500 text-center">고해상도 정보 리콜</p>
+                        <p class="text-sm text-gray-500 text-center">특정 정보에 대한 고해상도 리콜. "바다에서 바늘 찾기"와 같은 정밀 검색 작업 수행.</p>
                     </div>
-                    <div class="flex flex-col items-center space-y-4">
+                    <div class="flex flex-col items-center space-y-4 p-4 bg-gray-50 rounded-lg">
                         <div class="flow-box w-full">🧠 SSM 헤드 ("Summarizer")</div>
-                        <p class="text-sm text-gray-500 text-center">효율적인 컨텍스트 요약</p>
+                        <p class="text-sm text-gray-500 text-center">전체 시퀀스에 대한 효율적인 컨텍스트 요약. 글의 전반적인 흐름과 주제 파악.</p>
                     </div>
                 </div>
                 <div class="flow-arrow">↓</div>
@@ -102,11 +85,10 @@
             </div>
         </section>
 
-        <!-- Performance Revolution Section -->
         <section class="section-card">
             <h2 class="text-3xl font-bold text-center mb-10 text-[#0077B6]">성능 혁명: 수치로 보는 효율성</h2>
             <p class="text-center text-gray-600 max-w-3xl mx-auto mb-12">
-                SSM의 효율성, 슬라이딩 윈도우 어텐션, KV 캐시 공유 등 최적화 기법을 통해 Hymba는 기존 모델 대비 압도적인 효율성 이점을 달성합니다.
+                SSM의 선형적 효율성, 슬라이딩 윈도우 어텐션, KV 캐시 공유 등 다양한 최적화 기법을 통해 Hymba는 기존 모델 대비 압도적인 효율성 이점을 달성합니다. 이는 더 긴 문맥을 더 적은 자원으로 처리할 수 있음을 의미합니다.
             </p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
                 <div class="text-center">
@@ -124,69 +106,49 @@
             </div>
         </section>
         
-        <!-- Symphony of Specialists Section -->
-        <section class="section-card">
-            <h2 class="text-3xl font-bold text-center mb-10 text-[#0077B6]">전문가의 교향곡: 아키텍처 시너지</h2>
-             <p class="text-center text-gray-600 max-w-3xl mx-auto mb-12">
-                Hymba의 성공은 각 구성 요소가 명확한 역할을 수행하며 협력하는 '노동의 분업' 덕분입니다. 이는 단일 도구로 모든 문제를 해결하려는 방식에서 벗어나, 다중 전문가 패러다임으로의 정교한 진화를 보여줍니다.
-            </p>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div class="text-center p-6 bg-gray-50 rounded-lg">
-                    <p class="text-4xl mb-4">🔑</p>
-                    <h3 class="text-xl font-bold mb-2 text-gray-800">메타 토큰</h3>
-                    <p class="text-gray-600">"프로젝트 관리자" 역할. 초기 컨텍스트를 설정하고 어텐션 싱크 문제를 해결하여 전체 프로세스를 안정적으로 안내합니다.</p>
-                </div>
-                <div class="text-center p-6 bg-gray-50 rounded-lg">
-                    <p class="text-4xl mb-4">🧠</p>
-                    <h3 class="text-xl font-bold mb-2 text-gray-800">SSM 헤드</h3>
-                    <p class="text-gray-600">"요약 전문가" 역할. 전역 컨텍스트를 효율적으로 압축하고 전체적인 의미 흐름을 파악합니다.</p>
-                </div>
-                 <div class="text-center p-6 bg-gray-50 rounded-lg">
-                    <p class="text-4xl mb-4">🔍</p>
-                    <h3 class="text-xl font-bold mb-2 text-gray-800">어텐션 헤드</h3>
-                    <p class="text-gray-600">"사실 확인 전문가" 역할. 요약의 부담에서 벗어나 특정 장거리 정보나 사실을 정밀하게 리콜하는 데 집중합니다.</p>
-                </div>
-            </div>
-        </section>
-
     </main>
 
 <script>
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function () {
+    // Navigation active state
+    const navLinks = document.querySelectorAll('#nav-links .nav-link');
+    const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+    navLinks.forEach(link => {
+        if (link.getAttribute('href').includes(currentPage)) {
+            link.classList.add('active');
+        }
+    });
 
     const tooltipTitleCallback = (tooltipItems) => {
         const item = tooltipItems[0];
         let label = item.chart.data.labels[item.dataIndex];
-        if (Array.isArray(label)) {
-            return label.join(' ');
-        }
-        return label;
+        return Array.isArray(label) ? label.join(' ') : label;
     };
 
-    // Complexity Chart
+    // Interactive Complexity Chart
     const complexityCtx = document.getElementById('complexityChart').getContext('2d');
-    const labels = Array.from({ length: 17 }, (_, i) => i * 256); // 0 to 4096
-    const attentionData = labels.map(n => Math.pow(n, 2));
-    const ssmData = labels.map(n => n * 4096); // Scaled for visibility
+    const sequenceLengthSlider = document.getElementById('sequenceLength');
+    const sequenceLengthValue = document.getElementById('sequenceLengthValue');
+    const complexityText = document.getElementById('complexity-text');
 
-    new Chart(complexityCtx, {
+    let complexityChart = new Chart(complexityCtx, {
         type: 'line',
         data: {
-            labels: labels,
+            labels: [],
             datasets: [{
-                label: '어텐션 O(N²)',
-                data: attentionData,
-                borderColor: '#0077B6',
-                backgroundColor: 'rgba(0, 119, 182, 0.1)',
+                label: '어텐션 (O(N²))',
+                data: [],
+                borderColor: '#ef4444',
+                backgroundColor: '#ef444420',
+                tension: 0.1,
                 fill: true,
-                tension: 0.4
             }, {
-                label: 'SSM/Hymba O(N)',
-                data: ssmData,
-                borderColor: '#00B4D8',
-                backgroundColor: 'rgba(0, 180, 216, 0.1)',
+                label: 'SSM/Hymba (O(N))',
+                data: [],
+                borderColor: '#3b82f6',
+                backgroundColor: '#3b82f620',
+                tension: 0.1,
                 fill: true,
-                tension: 0.4
             }]
         },
         options: {
@@ -194,18 +156,67 @@ document.addEventListener('DOMContentLoaded', () => {
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    title: { display: true, text: '상대적 계산 비용' },
-                    ticks: { callback: (value) => value.toExponential(1) }
+                    beginAtZero: true,
+                    title: { display: true, text: '상대적 계산 비용' }
                 },
                 x: {
                     title: { display: true, text: '시퀀스 길이 (N)' }
                 }
             },
             plugins: {
-                tooltip: { callbacks: { title: tooltipTitleCallback } }
+                tooltip: {
+                    callbacks: {
+                        title: tooltipTitleCallback,
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += context.parsed.y.toLocaleString();
+                            }
+                            return label;
+                        }
+                    }
+                }
             }
         }
     });
+
+    function updateComplexityChart() {
+        const n = parseInt(sequenceLengthSlider.value);
+        sequenceLengthValue.textContent = n;
+
+        const labels = [];
+        const attentionData = [];
+        const ssmData = [];
+        
+        const steps = 10;
+        for (let i = 0; i <= steps; i++) {
+            const current_n = Math.floor(n / steps * i);
+            if(current_n < 64) {
+                if (i === 0) labels.push(0);
+                continue;
+            };
+            labels.push(current_n);
+            attentionData.push(Math.pow(current_n / 64, 2)); 
+            ssmData.push(current_n / 64 * 10);
+        }
+
+        complexityChart.data.labels = labels;
+        complexityChart.data.datasets[0].data = attentionData;
+        complexityChart.data.datasets[1].data = ssmData;
+        complexityChart.update();
+
+        const lastAttentionCost = attentionData[attentionData.length - 1] || 0;
+        const lastSsmCost = ssmData[ssmData.length - 1] || 0;
+        const ratio = lastSsmCost > 0 ? (lastAttentionCost / lastSsmCost) : Infinity;
+
+        complexityText.innerHTML = `시퀀스 길이 <strong>${n}</strong>에서, 어텐션의 상대적 계산 비용은 <strong>${Math.round(lastAttentionCost).toLocaleString()}</strong>이며, SSM의 비용 <strong>${Math.round(lastSsmCost).toLocaleString()}</strong>보다 약 <strong class="text-red-500">${ratio.toFixed(1)}배</strong> 더 높습니다.`;
+    }
+
+    sequenceLengthSlider.addEventListener('input', updateComplexityChart);
+    updateComplexityChart();
 
     // Performance Chart
     const performanceCtx = document.getElementById('performanceChart').getContext('2d');
@@ -228,23 +239,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }]
         },
         options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: {
-                    beginAtZero: true,
-                    title: { display: true, text: '상대적 성능 (배수)' }
-                }
-            },
-            plugins: {
-                legend: { position: 'bottom' },
-                tooltip: { callbacks: { title: tooltipTitleCallback } }
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            scales: { x: { beginAtZero: true, title: { display: true, text: '상대적 성능 (배수)' } } },
+            plugins: { 
+                legend: { position: 'bottom' }, 
+                tooltip: { 
+                    callbacks: { 
+                        title: tooltipTitleCallback 
+                    } 
+                } 
             }
         }
     });
 });
 </script>
-
 </body>
 </html>

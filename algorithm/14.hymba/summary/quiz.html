@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hymba 아키텍처 퀴즈</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+        .gradient-text { background: linear-gradient(to right, #0077B6, #00B4D8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .nav-link { @apply px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-blue-100 hover:text-blue-800 transition-colors; }
+        .nav-link.active { @apply bg-blue-600 text-white hover:bg-blue-700; }
+        .content-card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); padding: 2.5rem; border: 1px solid #e5e7eb; }
+        .option-btn { @apply w-full text-left p-4 border-2 rounded-lg transition-colors duration-200; }
+        .option-btn:hover { @apply bg-gray-100; }
+        .option-btn.selected { @apply border-blue-500 bg-blue-50; }
+        .option-btn.correct { @apply bg-green-100 border-green-500; }
+        .option-btn.incorrect { @apply bg-red-100 border-red-500; }
+        .chart-container-sm { position: relative; width: 100%; max-width: 400px; margin-left: auto; margin-right: auto; height: 40vh; max-height: 350px; }
+    </style>
+</head>
+<body class="text-gray-800">
+    <header class="bg-white/90 backdrop-blur-sm sticky top-0 z-50 shadow-md">
+        <nav class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <a href="./index.html" class="text-xl font-bold gradient-text">Hymba Research</a>
+            <div id="nav-links" class="hidden md:flex items-center space-x-2">
+                <a href="./index.html" class="nav-link">개요</a>
+                <a href="./principles.html" class="nav-link">핵심 원리</a>
+                <a href="./components.html" class="nav-link">구성 요소</a>
+                <a href="./performance.html" class="nav-link">성능</a>
+                <a href="./code.html" class="nav-link">코드</a>
+                <a href="./dpo.html" class="nav-link">학습 방법 (DPO)</a>
+                <a href="./quiz.html" class="nav-link">퀴즈</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-4 py-12">
+        <h1 class="text-4xl font-bold text-center mb-16 gradient-text">Hymba 아키텍처 지식 테스트</h1>
+
+        <div class="max-w-2xl mx-auto">
+            <div id="quiz-container" class="content-card">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="question-title" class="text-xl font-bold text-gray-800">질문 1 / 5</h2>
+                    <p id="progress-text" class="text-sm text-gray-500">0 / 5</p>
+                </div>
+                <p id="question-text" class="text-lg text-gray-700 mb-6">질문이 여기에 표시됩니다.</p>
+                <div id="options-container" class="space-y-4">
+                    <!-- Options will be dynamically inserted here -->
+                </div>
+                <button id="next-btn" class="w-full mt-8 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300">다음</button>
+            </div>
+
+            <div id="results-container" class="content-card text-center hidden">
+                <h2 class="text-3xl font-bold text-gray-800">퀴즈 완료!</h2>
+                <p class="text-gray-600 mt-2">결과는 다음과 같습니다.</p>
+                <div class="chart-container-sm my-8">
+                    <canvas id="resultsChart"></canvas>
+                </div>
+                <p id="results-summary" class="text-lg font-medium"></p>
+                <button id="retry-btn" class="mt-8 px-6 py-3 bg-gray-700 text-white font-bold rounded-lg hover:bg-gray-800 transition-colors">다시 풀기</button>
+            </div>
+        </div>
+    </main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Navigation active state
+    const navLinks = document.querySelectorAll('#nav-links .nav-link');
+    const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+    navLinks.forEach(link => {
+        if (link.getAttribute('href').includes(currentPage)) {
+            link.classList.add('active');
+        }
+    });
+
+    const quizData = [
+        {
+            question: "Hymba 아키텍처에서 SSM 헤드의 주요 역할은 무엇인가요?",
+            options: ["특정 사실에 대한 고해상도 리콜", "효율적인 컨텍스트 요약", "모든 토큰 쌍 간의 관계 계산", "피드포워드 네트워크 대체"],
+            answer: "효율적인 컨텍스트 요약"
+        },
+        {
+            question: "Hymba가 기존 트랜스포머 대비 갖는 가장 큰 효율성 이점은 무엇인가요?",
+            options: ["더 적은 레이어 사용", "선형($O(N)$) 계산 복잡도", "더 큰 어휘 크기 지원", "양방향 문맥 처리"],
+            answer: "선형($O(N)$) 계산 복잡도"
+        },
+        {
+            question: "Hymba의 '병렬 하이브리드 헤드'가 의미하는 것은 무엇인가요?",
+            options: ["SSM과 어텐션을 순차적으로 처리", "SSM과 어텐션을 동시에 처리", "두 개의 SSM 블록을 병렬로 사용", "두 개의 어텐션 블록을 병렬로 사용"],
+            answer: "SSM과 어텐션을 동시에 처리"
+        },
+        {
+            question: "어텐션 헤드의 효율성을 높이기 위해 사용되는 기법이 아닌 것은 무엇인가요?",
+            options: ["슬라이딩 윈도우 어텐션(SWA)", "KV 캐시 공유", "메타 토큰", "전체 시퀀스 어텐션"],
+            answer: "전체 시퀀스 어텐션"
+        },
+        {
+            question: "DPO는 어떤 기존 학습 방법론을 개선한 것인가요?",
+            options: ["사전 학습 (Pre-training)", "지도 미세조정 (SFT)", "강화학습 (RLHF)", "자기 지도 학습 (Self-supervised)"],
+            answer: "강화학습 (RLHF)"
+        }
+    ];
+
+    const quizContainer = document.getElementById('quiz-container');
+    const resultsContainer = document.getElementById('results-container');
+    const questionTitle = document.getElementById('question-title');
+    const progressText = document.getElementById('progress-text');
+    const questionText = document.getElementById('question-text');
+    const optionsContainer = document.getElementById('options-container');
+    const nextBtn = document.getElementById('next-btn');
+    const retryBtn = document.getElementById('retry-btn');
+    const resultsChartCtx = document.getElementById('resultsChart').getContext('2d');
+    const resultsSummary = document.getElementById('results-summary');
+
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let selectedOption = null;
+    let resultsChart = null;
+
+    function loadQuestion() {
+        selectedOption = null;
+        const currentQuestion = quizData[currentQuestionIndex];
+        questionTitle.textContent = `질문 ${currentQuestionIndex + 1} / ${quizData.length}`;
+        progressText.textContent = `${score} / ${quizData.length}`;
+        questionText.textContent = currentQuestion.question;
+        optionsContainer.innerHTML = '';
+        
+        currentQuestion.options.forEach(optionText => {
+            const button = document.createElement('button');
+            button.textContent = optionText;
+            button.classList.add('option-btn');
+            button.addEventListener('click', () => {
+                if (selectedOption) return; // Prevent changing answer
+                selectedOption = button;
+                document.querySelectorAll('.option-btn').forEach(btn => btn.classList.remove('selected'));
+                button.classList.add('selected');
+                nextBtn.disabled = false;
+            });
+            optionsContainer.appendChild(button);
+        });
+        nextBtn.disabled = true;
+    }
+
+    function showResults() {
+        quizContainer.classList.add('hidden');
+        resultsContainer.classList.remove('hidden');
+
+        resultsSummary.textContent = `총 ${quizData.length}문제 중 ${score}문제를 맞혔습니다!`;
+
+        if (resultsChart) {
+            resultsChart.destroy();
+        }
+        resultsChart = new Chart(resultsChartCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['정답', '오답'],
+                datasets: [{
+                    data: [score, quizData.length - score],
+                    backgroundColor: ['rgba(59, 130, 246, 0.7)', 'rgba(239, 68, 68, 0.7)'],
+                    borderColor: ['#fff', '#fff'],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: '퀴즈 결과' }
+                }
+            }
+        });
+    }
+
+    nextBtn.addEventListener('click', () => {
+        if (!selectedOption) return;
+
+        const currentQuestion = quizData[currentQuestionIndex];
+        const isCorrect = selectedOption.textContent === currentQuestion.answer;
+
+        if (isCorrect) {
+            score++;
+            selectedOption.classList.add('correct');
+        } else {
+            selectedOption.classList.add('incorrect');
+            // Show the correct answer
+            Array.from(optionsContainer.children).forEach(btn => {
+                if (btn.textContent === currentQuestion.answer) {
+                    btn.classList.add('correct');
+                }
+            });
+        }
+        
+        nextBtn.disabled = true;
+        
+        setTimeout(() => {
+            currentQuestionIndex++;
+            if (currentQuestionIndex < quizData.length) {
+                loadQuestion();
+            } else {
+                showResults();
+            }
+        }, 1500);
+    });
+
+    retryBtn.addEventListener('click', () => {
+        currentQuestionIndex = 0;
+        score = 0;
+        resultsContainer.classList.add('hidden');
+        quizContainer.classList.remove('hidden');
+        loadQuestion();
+    });
+
+    loadQuestion();
+});
+</script>
+</body>
+</html>
