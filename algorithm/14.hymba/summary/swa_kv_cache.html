@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hymba: SWA & KV Cache</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+        .gradient-text { background: linear-gradient(to right, #0077B6, #00B4D8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .nav-link { @apply px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-blue-100 hover:text-blue-800 transition-colors; }
+        .nav-link.active { @apply bg-blue-600 text-white hover:bg-blue-700; }
+        .content-card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); padding: 2.5rem; border: 1px solid #e5e7eb; }
+        h2 { @apply text-3xl font-bold text-gray-800 mb-4 border-l-4 border-blue-500 pl-4; }
+        p { @apply text-gray-700 leading-relaxed; }
+        .chart-container-sm { position: relative; width: 100%; max-width: 600px; margin-left: auto; margin-right: auto; height: 40vh; max-height: 400px; }
+    </style>
+</head>
+<body class="text-gray-800">
+    <header class="bg-white/90 backdrop-blur-sm sticky top-0 z-50 shadow-md">
+        <nav class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <a href="./index.html" class="text-xl font-bold gradient-text">Hymba Research</a>
+            <div id="nav-links" class="hidden md:flex items-center space-x-2">
+                <a href="./index.html" class="nav-link">개요</a>
+                <a href="./swa_kv_cache.html" class="nav-link active">SWA & KV Cache</a>
+                <a href="./meta_token.html" class="nav-link">메타 토큰</a>
+                <a href="./train_recipe.html" class="nav-link">학습 레시피</a>
+                <a href="./design_roadmap.html" class="nav-link">설계 로드맵</a>
+                <a href="./dpo_evolution.html" class="nav-link">DPO와 그 발전</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-4 py-12">
+        <h1 class="text-4xl font-bold text-center mb-16 gradient-text">어텐션 최적화: SWA & KV Cache 공유</h1>
+
+        <div class="space-y-12 max-w-4xl mx-auto">
+            <div class="content-card">
+                <h2>슬라이딩 윈도우 어텐션 (SWA)</h2>
+                <p>
+                    Hymba의 어텐션은 효율성을 극대화하기 위해 <strong>슬라이딩 윈도우 어텐션(SWA)</strong>을 채택합니다. 표준 어텐션이 모든 토큰을 서로 비교하는 것과 달리, SWA는 각 토큰이 자신을 포함한 이전의 고정된 크기(window size)의 토큰에만 주의를 기울이도록 제한합니다. 이는 어텐션 계산의 복잡도를 $O(N^2)$에서 $O(N \times W)$ (W는 윈도우 크기)로 크게 줄여줍니다. SSM이 전역 컨텍스트를 제공하기 때문에, 어텐션은 이 제한된 범위 내에서 정밀 검색 역할에만 집중할 수 있습니다.
+                </p>
+                <div class="mt-6 p-4 bg-gray-50 rounded-lg">
+                    <h4 class="font-bold text-center mb-2">SWA 시각화 (Window Size = 3)</h4>
+                    <p class="text-sm text-center text-gray-500">5번째 토큰은 3, 4, 5번째 토큰에만 주의를 기울입니다.</p>
+                    <div class="flex justify-center items-center space-x-2 mt-4">
+                        <span class="px-3 py-1 rounded bg-gray-200">T1</span>
+                        <span class="px-3 py-1 rounded bg-gray-200">T2</span>
+                        <span class="px-3 py-1 rounded bg-blue-200 border-2 border-blue-500">T3</span>
+                        <span class="px-3 py-1 rounded bg-blue-200 border-2 border-blue-500">T4</span>
+                        <span class="px-3 py-1 rounded bg-blue-500 text-white font-bold">T5</span>
+                        <span class="px-3 py-1 rounded bg-gray-200">T6</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-card">
+                <h2>레이어 간 KV 캐시 공유</h2>
+                <p>
+                    <strong>레이어 간 KV 캐시 공유</strong>는 인접한 레이어가 Key와 Value 값을 변환 없이 재사용하는 기법입니다. 이는 캐시 메모리 사용량을 절반으로 줄여주며, 모델이 레이어 전반에 걸쳐 더 안정적이고 재사용 가능한 표현을 개발하도록 유도하여 일종의 <strong>정규화(regularization)</strong> 효과를 낳습니다. 아래 그래프는 이러한 최적화 기법들이 KV 캐시 크기에 미치는 영향을 개념적으로 보여줍니다.
+                </p>
+                <div class="mt-8 chart-container-sm">
+                    <canvas id="attentionOptimizationChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Navigation active state
+    const navLinks = document.querySelectorAll('#nav-links .nav-link');
+    const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+    navLinks.forEach(link => {
+        if (link.getAttribute('href').includes(currentPage)) {
+            link.classList.add('active');
+        }
+    });
+
+    const attentionOptimizationCtx = document.getElementById('attentionOptimizationChart').getContext('2d');
+    new Chart(attentionOptimizationCtx, {
+        type: 'bar',
+        data: {
+            labels: ['표준 어텐션', 'SWA 적용', 'SWA + KV 캐시 공유 (Hymba)'],
+            datasets: [{
+                label: '상대적 KV 캐시 크기',
+                data: [100, 25, 12.5],
+                backgroundColor: [
+                    'rgba(239, 68, 68, 0.7)',
+                    'rgba(251, 146, 60, 0.7)',
+                    'rgba(59, 130, 246, 0.7)'
+                ],
+                borderColor: [
+                    'rgba(239, 68, 68, 1)',
+                    'rgba(251, 146, 60, 1)',
+                    'rgba(59, 130, 246, 1)'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                title: { display: true, text: '어텐션 헤드 최적화에 따른 KV 캐시 크기 변화 (개념적)' }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: '상대적 크기 (%)' }
+                }
+            }
+        }
+    });
+});
+</script>
+</body>
+</html>

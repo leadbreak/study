@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hymba 구성 요소</title>
+    <title>Hymba: 메타 토큰 심층 분석</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -17,7 +17,6 @@
         .content-card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); padding: 2.5rem; border: 1px solid #e5e7eb; }
         h2 { @apply text-3xl font-bold text-gray-800 mb-4 border-l-4 border-blue-500 pl-4; }
         p { @apply text-gray-700 leading-relaxed; }
-        code { @apply bg-gray-100 text-red-500 px-1 py-0.5 rounded-md text-sm; }
         .chart-container-sm { position: relative; width: 100%; max-width: 600px; margin-left: auto; margin-right: auto; height: 40vh; max-height: 400px; }
     </style>
 </head>
@@ -27,46 +26,37 @@
             <a href="./index.html" class="text-xl font-bold gradient-text">Hymba Research</a>
             <div id="nav-links" class="hidden md:flex items-center space-x-2">
                 <a href="./index.html" class="nav-link">개요</a>
-                <a href="./principles.html" class="nav-link">핵심 원리</a>
-                <a href="./components.html" class="nav-link active">구성 요소</a>
-                <a href="./performance.html" class="nav-link">성능</a>
-                <a href="./code.html" class="nav-link">코드</a>
-                <a href="./dpo.html" class="nav-link">학습 방법 (DPO)</a>
-                <a href="./quiz.html" class="nav-link">퀴즈</a>
+                <a href="./swa_kv_cache.html" class="nav-link">SWA & KV Cache</a>
+                <a href="./meta_token.html" class="nav-link active">메타 토큰</a>
+                <a href="./train_recipe.html" class="nav-link">학습 레시피</a>
+                <a href="./design_roadmap.html" class="nav-link">설계 로드맵</a>
+                <a href="./dpo_evolution.html" class="nav-link">DPO와 그 발전</a>
             </div>
         </nav>
     </header>
 
     <main class="container mx-auto px-4 py-12">
-        <h1 class="text-4xl font-bold text-center mb-16 gradient-text">Hymba 아키텍처 구성 요소</h1>
+        <h1 class="text-4xl font-bold text-center mb-16 gradient-text">학습 가능한 메타 토큰</h1>
 
         <div class="space-y-12 max-w-4xl mx-auto">
             <div class="content-card">
-                <h2>최적화된 어텐션 헤드</h2>
+                <h2>메타 토큰의 이중 역할</h2>
                 <p>
-                    Hymba의 어텐션은 효율성을 극대화하기 위해 몇 가지 중요한 최적화 기법을 채택합니다. 대표적으로 <strong>슬라이딩 윈도우 어텐션(SWA)</strong>과 <strong>레이어 간 키-값(KV) 캐시 공유</strong>가 있습니다.
-                </p>
-                <div class="mt-8 chart-container-sm">
-                    <canvas id="attentionOptimizationChart"></canvas>
-                </div>
-            </div>
-
-            <div class="content-card">
-                <h2>SSM 헤드 (Mamba)</h2>
-                <p>
-                    Hymba 내에서 SSM 헤드는 Mamba 아키텍처를 기반으로 합니다. Mamba는 기존 SSM을 개선한 '선택적' 상태 공간 모델입니다. 이는 입력에 따라 동적으로 파라미터를 조절하여, 관련 없는 정보는 잊고 중요한 정보는 상태에 유지하는 능력이 뛰어납니다. Mamba의 역할은 시퀀스의 전체 히스토리를 컴팩트한 상태 벡터로 효율적으로 압축하여 어텐션의 목표 지향적인 리콜 능력을 보완하는 전역적인 컨텍스트를 제공하는 것입니다.
-                </p>
-            </div>
-
-            <div class="content-card">
-                <h2>학습 가능한 메타 토큰</h2>
-                <p>
-                    Hymba는 모든 입력 시퀀스의 시작 부분에 소수의 학습 가능한 벡터, 즉 <strong>메타 토큰(meta tokens)</strong>을 추가하는 독특한 기법을 도입합니다. 이는 일종의 <strong>학습된, 암시적 프롬프트 엔지니어링(learned, implicit prompt engineering)</strong> 형태로 기능합니다.
+                    Hymba는 모든 입력 시퀀스의 시작 부분에 소수의 학습 가능한 벡터, 즉 <strong>메타 토큰(meta tokens)</strong>을 추가하는 독특한 기법을 도입합니다. 이는 일종의 <strong>학습된, 암시적 프롬프트 엔지니어링(learned, implicit prompt engineering)</strong> 형태로 기능하며, 두 가지 중요한 목적을 수행합니다.
                 </p>
                 <ul class="mt-4 list-disc list-inside space-y-2">
                     <li><strong>어텐션 싱크 문제 해결:</strong> 모델의 주의가 의미 없이 첫 토큰에 과도하게 집중되는 '어텐션 싱크' 현상을 완화하는 '전용 흡수 장치' 역할을 합니다.</li>
                     <li><strong>암시적 프롬프트 엔지니어링:</strong> 모델이 모든 주어진 시퀀스에 대한 자체 처리를 준비하기 위해 사용하는, 내장되고 보편적으로 적용 가능한 '메타 프롬프트' 역할을 합니다. 이는 실제 입력 토큰의 처리를 안내하는 추상적인 추론 전략이나 문맥적 프레임을 인코딩하도록 학습될 수 있습니다.</li>
                 </ul>
+            </div>
+            <div class="content-card">
+                <h2>어텐션 싱크 현상과 해결</h2>
+                <p>
+                    표준 트랜스포머 모델에서는 초기 토큰(BOS 등)이 후속 토큰들의 정보를 집약하는 '어텐션 싱크' 역할을 하는 경향이 있습니다. 이는 모델 성능에 필수적이지만, 스트리밍 추론 시 초기 토큰이 제거되면 성능이 급격히 저하되는 문제를 야기합니다. Hymba의 메타 토큰은 이러한 '싱크' 역할을 대신 수행하여, 실제 콘텐츠 토큰들이 자신의 의미에 더 집중할 수 있도록 합니다.
+                </p>
+                <div class="mt-8 chart-container-sm">
+                    <canvas id="attentionSinkChart"></canvas>
+                </div>
             </div>
         </div>
     </main>
@@ -81,23 +71,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    const attentionOptimizationCtx = document.getElementById('attentionOptimizationChart').getContext('2d');
-    new Chart(attentionOptimizationCtx, {
+    const attentionSinkCtx = document.getElementById('attentionSinkChart').getContext('2d');
+    new Chart(attentionSinkCtx, {
         type: 'bar',
         data: {
-            labels: ['표준 어텐션', 'SWA 적용', 'SWA + KV 캐시 공유 (Hymba)'],
+            labels: ['BOS 토큰', '메타 토큰', '일반 토큰 1', '일반 토큰 2', '일반 토큰 3'],
             datasets: [{
-                label: '상대적 KV 캐시 크기',
-                data: [100, 25, 12.5],
+                label: '어텐션 집중도 (가상)',
+                data: [85, 90, 20, 25, 15],
                 backgroundColor: [
                     'rgba(239, 68, 68, 0.7)',
-                    'rgba(251, 146, 60, 0.7)',
-                    'rgba(59, 130, 246, 0.7)'
+                    'rgba(59, 130, 246, 0.7)',
+                    'rgba(168, 162, 158, 0.7)',
+                    'rgba(168, 162, 158, 0.7)',
+                    'rgba(168, 162, 158, 0.7)'
                 ],
                 borderColor: [
                     'rgba(239, 68, 68, 1)',
-                    'rgba(251, 146, 60, 1)',
-                    'rgba(59, 130, 246, 1)'
+                    'rgba(59, 130, 246, 1)',
+                    'rgba(168, 162, 158, 1)',
+                    'rgba(168, 162, 158, 1)',
+                    'rgba(168, 162, 158, 1)'
                 ],
                 borderWidth: 1
             }]
@@ -107,12 +101,12 @@ document.addEventListener('DOMContentLoaded', () => {
             maintainAspectRatio: false,
             plugins: {
                 legend: { display: false },
-                title: { display: true, text: '어텐션 헤드 최적화에 따른 KV 캐시 크기 변화 (개념적)' }
+                title: { display: true, text: '메타 토큰의 어텐션 싱크 역할 (개념적)' }
             },
             scales: {
                 y: {
                     beginAtZero: true,
-                    title: { display: true, text: '상대적 크기 (%)' }
+                    title: { display: true, text: '어텐션 점수 합계' }
                 }
             }
         }

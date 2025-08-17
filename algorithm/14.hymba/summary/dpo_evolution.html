@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DPO와 그 발전</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Source+Code+Pro&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+        .gradient-text { background: linear-gradient(to right, #0077B6, #00B4D8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .nav-link { @apply px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-blue-100 hover:text-blue-800 transition-colors; }
+        .nav-link.active { @apply bg-blue-600 text-white hover:bg-blue-700; }
+        .content-card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); padding: 2.5rem; border: 1px solid #e5e7eb; }
+        h2 { @apply text-3xl font-bold text-gray-800 mb-4 border-l-4 border-blue-500 pl-4; }
+        p { @apply text-gray-700 leading-relaxed; }
+        th { @apply bg-gray-50; }
+    </style>
+</head>
+<body class="text-gray-800">
+    <header class="bg-white/90 backdrop-blur-sm sticky top-0 z-50 shadow-md">
+        <nav class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <a href="./index.html" class="text-xl font-bold gradient-text">Hymba Research</a>
+            <div id="nav-links" class="hidden md:flex items-center space-x-2">
+                <a href="./index.html" class="nav-link">개요</a>
+                <a href="./swa_kv_cache.html" class="nav-link">SWA & KV Cache</a>
+                <a href="./meta_token.html" class="nav-link">메타 토큰</a>
+                <a href="./train_recipe.html" class="nav-link">학습 레시피</a>
+                <a href="./design_roadmap.html" class="nav-link">설계 로드맵</a>
+                <a href="./dpo_evolution.html" class="nav-link active">DPO와 그 발전</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-4 py-12">
+        <h1 class="text-4xl font-bold text-center mb-16 gradient-text">DPO와 그 발전: 모델 정렬 방법론의 진화</h1>
+
+        <div class="space-y-12 max-w-4xl mx-auto">
+            <div class="content-card">
+                <h2>DPO란 무엇인가?: RLHF의 우아한 대안</h2>
+                <p>
+                    <strong>DPO(Direct Preference Optimization)</strong>는 인간의 선호도를 직접적으로 최적화하여 언어 모델을 정렬(Alignment)하는 혁신적인 방법론입니다. 기존의 복잡한 <strong>RLHF(Reinforcement Learning from Human Feedback)</strong> 파이프라인(보상 모델 학습 → 강화학습)을 하나의 간단한 분류 문제로 변환하여 안정성과 효율성을 크게 높였습니다.
+                </p>
+                <p class="mt-4">
+                    DPO의 핵심은 보상 함수를 명시적으로 모델링하는 대신, 정책 모델과 참조 모델 간의 확률 비율을 사용하여 선호도 데이터를 직접 최적화하는 것입니다. DPO 손실 함수는 다음과 같이 표현됩니다.
+                </p>
+                <div class="my-6 p-4 bg-gray-100 rounded-lg text-center text-lg">
+                    $$ \mathcal{L}_{DPO}(\pi; \pi_{ref}) = - \mathbb{E}_{(x, y_w, y_l) \sim \mathcal{D}} \left[ \log \sigma \left( \beta \log \frac{\pi(y_w|x)}{\pi_{ref}(y_w|x)} - \beta \log \frac{\pi(y_l|x)}{\pi_{ref}(y_l|x)} \right) \right] $$
+                </div>
+                <p>
+                    이 손실 함수는 모델($\pi$)이 선호되는 응답($y_w$)에 대해서는 참조 모델($\pi_{ref}$)보다 높은 확률을, 선호되지 않는 응답($y_l$)에 대해서는 낮은 확률을 부여하도록 직접적으로 학습시킵니다.
+                </p>
+            </div>
+
+            <div class="content-card">
+                <h2>최신 연구 동향: DPO를 넘어서</h2>
+                <p>
+                    DPO의 성공 이후, 그 아이디어를 확장하고 개선하려는 여러 후속 연구가 등장했습니다. 아래 표는 각 방법론의 핵심 특징과 장단점을 비교한 것입니다.
+                </p>
+                <div class="mt-8 overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">방법론</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">핵심 아이디어</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">장점/단점</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td class="px-6 py-4 font-bold">DPO</td>
+                                <td class="px-6 py-4">보상 모델링을 분류 문제로 변환</td>
+                                <td class="px-6 py-4"><strong>장점:</strong> 단순함, 안정적. <br><strong>단점:</strong> 과적합 가능성.</td>
+                            </tr>
+                            <tr>
+                                <td class="px-6 py-4 font-bold">IPO</td>
+                                <td class="px-6 py-4">과적합 방지를 위한 정규화 항 추가</td>
+                                <td class="px-6 py-4"><strong>장점:</strong> 일반화 성능 향상. <br><strong>단점:</strong> 손실 함수 복잡도 증가.</td>
+                            </tr>
+                            <tr>
+                                <td class="px-6 py-4 font-bold">KTO</td>
+                                <td class="px-6 py-4">'좋음/나쁨'으로 선호도 단순화</td>
+                                <td class="px-6 py-4"><strong>장점:</strong> 쌍이 아닌 데이터 사용 가능. <br><strong>단점:</strong> 선호도 강도 정보 손실.</td>
+                            </tr>
+                            <tr>
+                                <td class="px-6 py-4 font-bold">ORPO</td>
+                                <td class="px-6 py-4">SFT와 선호도 학습을 단일 단계로 결합</td>
+                                <td class="px-6 py-4"><strong>장점:</strong> 훈련 과정 단순화. <br><strong>단점:</strong> 비교적 최신 연구.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Navigation active state
+    const navLinks = document.querySelectorAll('#nav-links .nav-link');
+    const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+    navLinks.forEach(link => {
+        if (link.getAttribute('href').includes(currentPage)) {
+            link.classList.add('active');
+        }
+    });
+});
+</script>
+</body>
+</html>
