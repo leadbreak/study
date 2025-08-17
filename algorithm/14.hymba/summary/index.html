@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', function () {
         for (let i = 0; i <= steps; i++) {
             const current_n = Math.floor(n / steps * i);
             if(current_n < 64) {
-                if (i === 0) labels.push(0);
+                if (i === 0) labels.push(0); // Ensure origin is plotted
                 continue;
             };
             labels.push(current_n);
