@@ -1,7 +1,7 @@
 ### 📝Log
 | Date             | Content                              | Link |
 |------------------|----------------------------------------|------|
-| 2025.06.29-      | [Paper] TabPFN                         | In Progress... |
+| 2025.06.29-08.20 | [Paper] TabPFN                         | [code](/algorithm/13.PFN) |
 | 2025.04.09-06.11 | [Paper] minRNN                         | [blog](https://brunch.co.kr/@leadbreak/26) [code](/algorithm/12.minRNN) |
 | 2025.04.07-      | Deep Learning Training Note            | [code](/python/dl_training_note.ipynb) |
 | 2025.03.25-04.13 | [Paper] Mamba                          | [blog](https://brunch.co.kr/@leadbreak/25) [code](/algorithm/11.Mamba) |
@@ -32,7 +32,8 @@
 
 ### ✅To Read Paper
 ---
-- [ ] [TabPFN](https://github.com/PriorLabs/TabPFN)
+- [ ] [Hymba]()
+- [x] [TabPFN](https://github.com/PriorLabs/TabPFN)
 - [X] [Were RNNs All We Needed?](https://arxiv.org/html/2410.01201v1)
 - [X] [Mamba](https://arxiv.org/abs/2312.00752)
 - [X] [Differential Transformer](https://arxiv.org/abs/2410.05258)

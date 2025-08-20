@@ -4,6 +4,8 @@ sports/
 test.png
 demo_test/*/*
 */*_data/
+**/data/
+**/data/**
 algorithm/08.MoE/MoEs/cifar10_data/
 *.zip
 
