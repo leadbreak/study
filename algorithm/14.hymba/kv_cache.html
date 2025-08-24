@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KV 캐시 동작 원리 비교 시뮬레이터</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; }
+        .token {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 0.25rem;
+            transition: all 0.3s ease;
+            height: 32px;
+        }
+        .token-prompt { background-color: #6b7280; /* Gray 500 */ }
+        .token-generated { background-color: #8b5cf6; /* Violet 500 */ }
+        .token-input { background-color: #f59e0b; /* Amber 500 */ }
+        .processing {
+            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-7xl">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-2">KV 캐시 동작 원리 비교 시뮬레이터</h1>
+        <p class="text-center text-gray-500 mb-6">아래 'Generate Token' 버튼을 눌러 각 방식의 토큰 생성 과정을 단계별로 비교해보세요.</p>
+
+        <div class="text-center mb-6">
+            <button id="generateBtn" class="bg-blue-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-600 transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                Generate Token
+            </button>
+            <button id="resetBtn" class="ml-4 bg-gray-300 text-gray-700 font-bold py-3 px-6 rounded-lg hover:bg-gray-400 transition-colors focus:outline-none">
+                리셋
+            </button>
+        </div>
+
+        <div id="explanation" class="mb-6 text-center text-gray-600 bg-blue-50 p-4 rounded-lg border border-blue-200 min-h-[50px]">
+            'Generate Token' 버튼을 눌러 시작하세요.
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- With KV Cache -->
+            <div class="bg-gray-50 p-6 rounded-xl border-2 border-green-300">
+                <h2 class="text-2xl font-bold mb-4 text-center text-green-700">✅ With KV Cache</h2>
+                
+                <div>
+                    <h3 class="font-semibold text-gray-700 mb-2">입력 (Input)</h3>
+                    <div id="input-with-cache" class="p-3 bg-white rounded border min-h-[50px] flex items-center flex-wrap">
+                         <span class="text-gray-400">대기 중...</span>
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <h3 class="font-semibold text-gray-700 mb-2">KV 캐시</h3>
+                    <div id="kv-cache-area" class="p-3 bg-green-50 rounded border min-h-[50px] flex items-center flex-wrap">
+                        <span class="text-gray-400">Prefill 필요</span>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <h3 class="font-semibold text-gray-700 mb-2">총 계산량 (현재 스텝)</h3>
+                    <div id="calc-with-cache" class="p-3 bg-white rounded border min-h-[50px] font-mono text-lg text-green-700 text-center flex items-center justify-center">
+                        0
+                    </div>
+                </div>
+            </div>
+
+            <!-- Without KV Cache -->
+            <div class="bg-gray-50 p-6 rounded-xl border-2 border-red-300">
+                <h2 class="text-2xl font-bold mb-4 text-center text-red-700">❌ Without KV Cache</h2>
+                
+                <div>
+                    <h3 class="font-semibold text-gray-700 mb-2">입력 (Input)</h3>
+                    <div id="input-without-cache" class="p-3 bg-white rounded border min-h-[50px] flex items-center flex-wrap">
+                         <span class="text-gray-400">대기 중...</span>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <h3 class="font-semibold text-gray-700 mb-2">KV 캐시</h3>
+                    <div class="p-3 bg-red-50 rounded border min-h-[50px] flex items-center flex-wrap">
+                        <span class="text-gray-400">사용 안함</span>
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <h3 class="font-semibold text-gray-700 mb-2">총 계산량 (현재 스텝)</h3>
+                    <div id="calc-without-cache" class="p-3 bg-white rounded border min-h-[50px] font-mono text-lg text-red-700 text-center flex items-center justify-center">
+                        0
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-8">
+            <h2 class="text-2xl font-bold text-center text-gray-800 mb-4">최종 생성 문장</h2>
+            <div id="output-area" class="p-4 bg-white rounded-xl border min-h-[60px] flex items-center flex-wrap text-lg">
+                <span class="text-gray-400">생성 대기 중...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const generateBtn = document.getElementById('generateBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const explanationDiv = document.getElementById('explanation');
+        
+        const inputWithCache = document.getElementById('input-with-cache');
+        const kvCacheArea = document.getElementById('kv-cache-area');
+        const calcWithCache = document.getElementById('calc-with-cache');
+        
+        const inputWithoutCache = document.getElementById('input-without-cache');
+        const calcWithoutCache = document.getElementById('calc-without-cache');
+        
+        const outputArea = document.getElementById('output-area');
+
+        const promptTokens = ['Hymba', '는', 'Mamba', '와'];
+        const generatedTokens = ['Attention', '을', '결합', '한다'];
+        let currentStep = -1; // -1: initial, 0: prefill, 1+: generate
+        let fullSequence = [];
+
+        function createTokenElement(text, type, isInput = false) {
+            const el = document.createElement('div');
+            el.textContent = text;
+            el.classList.add('token', `token-${type}`);
+            if (isInput) el.classList.add('token-input');
+            return el;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function updateUI() {
+            generateBtn.disabled = true;
+
+            // Prefill Step
+            if (currentStep === 0) {
+                explanationDiv.textContent = `1. Prefill (프롬프트 처리): 프롬프트(${promptTokens.length}개 토큰)를 한 번에 처리하여 KV 캐시를 채웁니다.`;
+                fullSequence = [...promptTokens];
+                
+                // With Cache
+                inputWithCache.innerHTML = '';
+                kvCacheArea.innerHTML = '';
+                promptTokens.forEach(t => inputWithCache.appendChild(createTokenElement(t, 'prompt', true)));
+                calcWithCache.textContent = `~${promptTokens.length} 토큰`;
+                
+                // Without Cache
+                inputWithoutCache.innerHTML = '';
+                promptTokens.forEach(t => inputWithoutCache.appendChild(createTokenElement(t, 'prompt', true)));
+                calcWithoutCache.textContent = `~${promptTokens.length} 토큰`;
+                
+                // Output
+                outputArea.innerHTML = '';
+                promptTokens.forEach(t => outputArea.appendChild(createTokenElement(t, 'prompt')));
+
+                inputWithCache.classList.add('processing');
+                inputWithoutCache.classList.add('processing');
+                await sleep(1000);
+                inputWithCache.classList.remove('processing');
+                inputWithoutCache.classList.remove('processing');
+                
+                // Fill cache for 'With Cache' side
+                promptTokens.forEach(t => kvCacheArea.appendChild(createTokenElement(t, 'prompt')));
+
+            } 
+            // Generate Steps
+            else if (currentStep > 0 && currentStep <= generatedTokens.length) {
+                const stepIndex = currentStep - 1;
+                const newToken = generatedTokens[stepIndex];
+                explanationDiv.textContent = `${stepIndex + 2}. Generate Token (${stepIndex + 1}/${generatedTokens.length}): 새로운 토큰 '${newToken}'을 생성합니다.`;
+                
+                // With Cache
+                inputWithCache.innerHTML = '';
+                inputWithCache.appendChild(createTokenElement(newToken, 'generated', true));
+                calcWithCache.textContent = `~1 토큰`; // Only processes the new token
+                
+                // Without Cache
+                inputWithoutCache.innerHTML = '';
+                fullSequence.forEach(t => inputWithoutCache.appendChild(createTokenElement(t, 'prompt')));
+                inputWithoutCache.appendChild(createTokenElement(newToken, 'generated', true));
+                calcWithoutCache.textContent = `~${fullSequence.length + 1} 토큰`;
+                
+                inputWithCache.classList.add('processing');
+                inputWithoutCache.classList.add('processing');
+                await sleep(1000);
+                inputWithCache.classList.remove('processing');
+                inputWithoutCache.classList.remove('processing');
+
+                // Update cache and full sequence
+                kvCacheArea.appendChild(createTokenElement(newToken, 'generated'));
+                outputArea.appendChild(createTokenElement(newToken, 'generated'));
+                fullSequence.push(newToken);
+            }
+
+            if (currentStep >= generatedTokens.length) {
+                generateBtn.disabled = true;
+                explanationDiv.textContent = '모든 토큰 생성이 완료되었습니다. 리셋 버튼을 눌러 다시 시작하세요.';
+            } else {
+                generateBtn.disabled = false;
+            }
+        }
+
+        function handleGenerateClick() {
+            currentStep++;
+            updateUI();
+        }
+        
+        function handleResetClick() {
+            currentStep = -1;
+            fullSequence = [];
+            
+            explanationDiv.textContent = "'Generate Token' 버튼을 눌러 시작하세요.";
+            inputWithCache.innerHTML = `<span class="text-gray-400">대기 중...</span>`;
+            kvCacheArea.innerHTML = `<span class="text-gray-400">Prefill 필요</span>`;
+            calcWithCache.textContent = '0';
+            
+            inputWithoutCache.innerHTML = `<span class="text-gray-400">대기 중...</span>`;
+            calcWithoutCache.textContent = '0';
+            
+            outputArea.innerHTML = `<span class="text-gray-400">생성 대기 중...</span>`;
+            generateBtn.disabled = false;
+        }
+
+        generateBtn.addEventListener('click', handleGenerateClick);
+        resetBtn.addEventListener('click', handleResetClick);
+    </script>
+</body>
+</html>
+
+```
