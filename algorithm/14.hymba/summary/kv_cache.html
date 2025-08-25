@@ -3,43 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KV 캐시 동작 원리 비교 시뮬레이터</title>
+    <title>KV 캐시 동작 원리 비교 시뮬레이터 (격자 시각화)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Noto Sans KR', sans-serif; }
         .token {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-weight: 600;
-            color: white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin: 0.25rem;
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 600;
+            color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin: 0.25rem;
+            transition: all 0.3s ease; height: 32px;
+        }
+        .token-prompt { background-color: #6b7280; }
+        .token-generated { background-color: #8b5cf6; }
+        
+        .attn-diagram {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 0.5rem; font-family: 'Source Code Pro', monospace;
+            padding: 1rem; background-color: #f9fafb; border-radius: 0.5rem;
+        }
+        .attn-row { display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+        .op-symbol { font-size: 1.5rem; font-weight: 300; color: #6b7280; }
+
+        .matrix-container {
+            display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+        }
+        .matrix-grid {
+            display: grid;
+            border: 2px solid;
+            background-color: white;
+            padding: 1px;
+            gap: 1px;
             transition: all 0.3s ease;
-            height: 32px;
         }
-        .token-prompt { background-color: #6b7280; /* Gray 500 */ }
-        .token-generated { background-color: #8b5cf6; /* Violet 500 */ }
-        .token-input { background-color: #f59e0b; /* Amber 500 */ }
-        .processing {
-            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        .matrix-grid-cell {
+            background-color: currentColor;
+            opacity: 0.3;
         }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .5; }
-        }
-        .fade-in {
-            animation: fadeIn 0.5s ease forwards;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        .matrix-label { font-size: 0.8rem; font-weight: 600; }
+        
+        .color-q { border-color: #f59e0b; color: #f59e0b; }
+        .color-k { border-color: #6b7280; color: #6b7280; }
+        .color-v { border-color: #10b981; color: #10b981; }
+        .color-score { border-color: #ef4444; color: #ef4444; }
+        .color-out { border-color: #3b82f6; color: #3b82f6; }
     </style>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
@@ -64,25 +73,24 @@
             <!-- With KV Cache -->
             <div class="bg-gray-50 p-6 rounded-xl border-2 border-green-300">
                 <h2 class="text-2xl font-bold mb-4 text-center text-green-700">✅ With KV Cache</h2>
-                
-                <div>
-                    <h3 class="font-semibold text-gray-700 mb-2">입력 (Input)</h3>
-                    <div id="input-with-cache" class="p-3 bg-white rounded border min-h-[50px] flex items-center flex-wrap">
-                         <span class="text-gray-400">대기 중...</span>
+                <div class="space-y-4">
+                    <div>
+                        <h3 class="font-semibold text-gray-700 mb-2">입력 (Input)</h3>
+                        <div id="input-with-cache" class="p-3 bg-white rounded border min-h-[50px] flex items-center flex-wrap">
+                            <span class="text-gray-400">대기 중...</span>
+                        </div>
                     </div>
-                </div>
-                
-                <div class="mt-4">
-                    <h3 class="font-semibold text-gray-700 mb-2">KV 캐시</h3>
-                    <div id="kv-cache-area" class="p-3 bg-green-50 rounded border min-h-[50px] flex items-center flex-wrap">
-                        <span class="text-gray-400">Prefill 필요</span>
+                    <div>
+                        <h3 class="font-semibold text-gray-700 mb-2">KV 캐시 (누적)</h3>
+                        <div id="kv-cache-area" class="p-3 bg-green-50 rounded border min-h-[50px] flex items-center flex-wrap">
+                            <span class="text-gray-400">Prefill 필요</span>
+                        </div>
                     </div>
-                </div>
-
-                <div class="mt-4">
-                    <h3 class="font-semibold text-gray-700 mb-2">총 계산량 (현재 스텝)</h3>
-                    <div id="calc-with-cache" class="p-3 bg-white rounded border min-h-[50px] font-mono text-lg text-green-700 text-center flex items-center justify-center">
-                        0
+                    <div>
+                        <h3 class="font-semibold text-gray-700 mb-2">어텐션 계산 (현재 스텝)</h3>
+                        <div id="attn-with-cache" class="p-3 bg-white rounded border min-h-[220px] flex items-center justify-center">
+                            <span class="text-gray-400">대기 중...</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -90,25 +98,24 @@
             <!-- Without KV Cache -->
             <div class="bg-gray-50 p-6 rounded-xl border-2 border-red-300">
                 <h2 class="text-2xl font-bold mb-4 text-center text-red-700">❌ Without KV Cache</h2>
-                
-                <div>
-                    <h3 class="font-semibold text-gray-700 mb-2">입력 (Input)</h3>
-                    <div id="input-without-cache" class="p-3 bg-white rounded border min-h-[50px] flex items-center flex-wrap">
-                         <span class="text-gray-400">대기 중...</span>
+                <div class="space-y-4">
+                    <div>
+                        <h3 class="font-semibold text-gray-700 mb-2">입력 (Input)</h3>
+                        <div id="input-without-cache" class="p-3 bg-white rounded border min-h-[50px] flex items-center flex-wrap">
+                            <span class="text-gray-400">대기 중...</span>
+                        </div>
                     </div>
-                </div>
-
-                <div class="mt-4">
-                    <h3 class="font-semibold text-gray-700 mb-2">KV 캐시</h3>
-                    <div class="p-3 bg-red-50 rounded border min-h-[50px] flex items-center flex-wrap">
-                        <span class="text-gray-400">사용 안함</span>
+                    <div>
+                        <h3 class="font-semibold text-gray-700 mb-2">KV 캐시</h3>
+                        <div class="p-3 bg-red-50 rounded border min-h-[50px] flex items-center flex-wrap">
+                            <span class="text-gray-400">사용 안함</span>
+                        </div>
                     </div>
-                </div>
-                
-                <div class="mt-4">
-                    <h3 class="font-semibold text-gray-700 mb-2">총 계산량 (현재 스텝)</h3>
-                    <div id="calc-without-cache" class="p-3 bg-white rounded border min-h-[50px] font-mono text-lg text-red-700 text-center flex items-center justify-center">
-                        0
+                    <div>
+                        <h3 class="font-semibold text-gray-700 mb-2">어텐션 계산 (현재 스텝)</h3>
+                        <div id="attn-without-cache" class="p-3 bg-white rounded border min-h-[220px] flex items-center justify-center">
+                            <span class="text-gray-400">대기 중...</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -123,131 +130,204 @@
     </div>
 
     <script>
-        const generateBtn = document.getElementById('generateBtn');
-        const resetBtn = document.getElementById('resetBtn');
-        const explanationDiv = document.getElementById('explanation');
-        
-        const inputWithCache = document.getElementById('input-with-cache');
-        const kvCacheArea = document.getElementById('kv-cache-area');
-        const calcWithCache = document.getElementById('calc-with-cache');
-        
-        const inputWithoutCache = document.getElementById('input-without-cache');
-        const calcWithoutCache = document.getElementById('calc-without-cache');
-        
-        const outputArea = document.getElementById('output-area');
+        document.addEventListener('DOMContentLoaded', () => {
+            const generateBtn = document.getElementById('generateBtn');
+            const resetBtn = document.getElementById('resetBtn');
+            const explanationDiv = document.getElementById('explanation');
+            
+            const inputWithCache = document.getElementById('input-with-cache');
+            const kvCacheArea = document.getElementById('kv-cache-area');
+            const attnWithCache = document.getElementById('attn-with-cache');
+            
+            const inputWithoutCache = document.getElementById('input-without-cache');
+            const attnWithoutCache = document.getElementById('attn-without-cache');
+            
+            const outputArea = document.getElementById('output-area');
 
-        const promptTokens = ['Hymba', '는', 'Mamba', '와'];
-        const generatedTokens = ['Attention', '을', '결합', '한다'];
-        let currentStep = -1; // -1: initial, 0: prefill, 1+: generate
-        let fullSequence = [];
+            const promptTokens = ['Hymba', '는', 'Mamba', '와'];
+            const generatedTokens = ['Attention', '을', '결합', '한다'];
+            let currentStep = -1;
+            let fullSequence = [];
+            let isAnimating = false;
 
-        function createTokenElement(text, type, isInput = false) {
-            const el = document.createElement('div');
-            el.textContent = text;
-            el.classList.add('token', `token-${type}`);
-            if (isInput) el.classList.add('token-input');
-            return el;
-        }
+            function createTokenElement(text, type) {
+                const el = document.createElement('div');
+                el.textContent = text;
+                el.classList.add('token', `token-${type}`);
+                return el;
+            }
+            
+            function createGridMatrix(rows, cols, label, colorClass) {
+                const container = document.createElement('div');
+                container.className = 'matrix-container';
 
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        async function updateUI() {
-            generateBtn.disabled = true;
-
-            // Prefill Step
-            if (currentStep === 0) {
-                explanationDiv.textContent = `1. Prefill (프롬프트 처리): 프롬프트(${promptTokens.length}개 토큰)를 한 번에 처리하여 KV 캐시를 채웁니다.`;
-                fullSequence = [...promptTokens];
+                const grid = document.createElement('div');
+                grid.className = `matrix-grid ${colorClass}`;
                 
-                // With Cache
-                inputWithCache.innerHTML = '';
-                kvCacheArea.innerHTML = '';
-                promptTokens.forEach(t => inputWithCache.appendChild(createTokenElement(t, 'prompt', true)));
-                calcWithCache.textContent = `~${promptTokens.length} 토큰`;
-                
-                // Without Cache
-                inputWithoutCache.innerHTML = '';
-                promptTokens.forEach(t => inputWithoutCache.appendChild(createTokenElement(t, 'prompt', true)));
-                calcWithoutCache.textContent = `~${promptTokens.length} 토큰`;
-                
-                // Output
-                outputArea.innerHTML = '';
-                promptTokens.forEach(t => outputArea.appendChild(createTokenElement(t, 'prompt')));
+                const maxVisualCells = 12;
+                const gridRows = Math.min(rows, maxVisualCells);
+                const gridCols = Math.min(cols, maxVisualCells);
 
-                inputWithCache.classList.add('processing');
-                inputWithoutCache.classList.add('processing');
-                await sleep(1000);
-                inputWithCache.classList.remove('processing');
-                inputWithoutCache.classList.remove('processing');
+                grid.style.gridTemplateRows = `repeat(${gridRows}, 1fr)`;
+                grid.style.gridTemplateColumns = `repeat(${gridCols}, 1fr)`;
                 
-                // Fill cache for 'With Cache' side
-                promptTokens.forEach(t => kvCacheArea.appendChild(createTokenElement(t, 'prompt')));
+                const baseSize = 80; // Base size for the largest dimension
+                const aspectRatio = cols / rows;
 
-            } 
-            // Generate Steps
-            else if (currentStep > 0 && currentStep <= generatedTokens.length) {
-                const stepIndex = currentStep - 1;
-                const newToken = generatedTokens[stepIndex];
-                explanationDiv.textContent = `${stepIndex + 2}. Generate Token (${stepIndex + 1}/${generatedTokens.length}): 새로운 토큰 '${newToken}'을 생성합니다.`;
-                
-                // With Cache
-                inputWithCache.innerHTML = '';
-                inputWithCache.appendChild(createTokenElement(newToken, 'generated', true));
-                calcWithCache.textContent = `~1 토큰`; // Only processes the new token
-                
-                // Without Cache
-                inputWithoutCache.innerHTML = '';
-                fullSequence.forEach(t => inputWithoutCache.appendChild(createTokenElement(t, 'prompt')));
-                inputWithoutCache.appendChild(createTokenElement(newToken, 'generated', true));
-                calcWithoutCache.textContent = `~${fullSequence.length + 1} 토큰`;
-                
-                inputWithCache.classList.add('processing');
-                inputWithoutCache.classList.add('processing');
-                await sleep(1000);
-                inputWithCache.classList.remove('processing');
-                inputWithoutCache.classList.remove('processing');
+                if (rows > cols) {
+                    grid.style.height = `${baseSize}px`;
+                    grid.style.width = `${Math.max(15, baseSize * aspectRatio)}px`;
+                } else {
+                    grid.style.width = `${baseSize}px`;
+                    grid.style.height = `${Math.max(15, baseSize / aspectRatio)}px`;
+                }
+                grid.style.maxWidth = '120px';
+                grid.style.maxHeight = '120px';
 
-                // Update cache and full sequence
-                kvCacheArea.appendChild(createTokenElement(newToken, 'generated'));
-                outputArea.appendChild(createTokenElement(newToken, 'generated'));
-                fullSequence.push(newToken);
+                const totalCells = gridRows * gridCols;
+                for (let i = 0; i < totalCells; i++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'matrix-grid-cell';
+                    grid.appendChild(cell);
+                }
+
+                const labelEl = document.createElement('div');
+                labelEl.className = `matrix-label ${colorClass}`;
+                if (label.includes('Score')) {
+                   labelEl.textContent = `${label} [${rows} x ${cols}]`;
+                } else if (label.includes('K')) {
+                    labelEl.textContent = `${label}ᵀ [1 x ${rows}]`; // Transposed
+                } else {
+                    labelEl.textContent = `${label} [${rows} x 1]`;
+                }
+
+
+                container.appendChild(grid);
+                container.appendChild(labelEl);
+                return container;
             }
 
-            if (currentStep >= generatedTokens.length) {
+            function createAttentionDiagram(q_len, k_len) {
+                const diagram = document.createElement('div');
+                diagram.className = 'attn-diagram';
+                
+                const row1 = document.createElement('div');
+                row1.className = 'attn-row';
+                row1.appendChild(createGridMatrix(q_len, 1, 'Q', 'color-q'));
+                row1.innerHTML += '<span class="op-symbol">×</span>';
+                row1.appendChild(createGridMatrix(k_len, 1, 'K', 'color-k'));
+                row1.innerHTML += '<span class="op-symbol">→</span>';
+                row1.appendChild(createGridMatrix(q_len, k_len, 'Score', 'color-score'));
+
+                const arrow = document.createElement('div'); arrow.className = 'op-symbol'; arrow.textContent = '↓';
+
+                const row2 = document.createElement('div');
+                row2.className = 'attn-row';
+                row2.innerHTML += '<span class="op-symbol">Softmax</span>';
+                row2.innerHTML += '<span class="op-symbol">×</span>';
+                row2.appendChild(createGridMatrix(k_len, 1, 'V', 'color-v'));
+                row2.innerHTML += '<span class="op-symbol">→</span>';
+                row2.appendChild(createGridMatrix(q_len, 1, 'Output', 'color-out'));
+                
+                diagram.appendChild(row1);
+                diagram.appendChild(arrow);
+                diagram.appendChild(row2);
+
+                return diagram;
+            }
+
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            async function updateUI() {
+                if (isAnimating) return;
+                isAnimating = true;
                 generateBtn.disabled = true;
-                explanationDiv.textContent = '모든 토큰 생성이 완료되었습니다. 리셋 버튼을 눌러 다시 시작하세요.';
-            } else {
+
+                if (currentStep === 0) { // Prefill Step
+                    explanationDiv.innerHTML = `<strong>1. Prefill (프롬프트 처리):</strong> 프롬프트(${promptTokens.length}개)를 한 번에 처리하여 KV 캐시를 채웁니다.`;
+                    fullSequence = [...promptTokens];
+                    
+                    inputWithCache.innerHTML = '';
+                    promptTokens.forEach(t => inputWithCache.appendChild(createTokenElement(t, 'prompt')));
+                    attnWithCache.innerHTML = '';
+                    attnWithCache.appendChild(createAttentionDiagram(promptTokens.length, promptTokens.length));
+
+                    inputWithoutCache.innerHTML = '';
+                    promptTokens.forEach(t => inputWithoutCache.appendChild(createTokenElement(t, 'prompt')));
+                    attnWithoutCache.innerHTML = '';
+                    attnWithoutCache.appendChild(createAttentionDiagram(promptTokens.length, promptTokens.length));
+                    
+                    outputArea.innerHTML = '';
+                    promptTokens.forEach(t => outputArea.appendChild(createTokenElement(t, 'prompt')));
+                    
+                    await sleep(500);
+                    
+                    kvCacheArea.innerHTML = '';
+                    promptTokens.forEach(t => kvCacheArea.appendChild(createTokenElement(t, 'prompt')));
+
+                } else if (currentStep > 0 && currentStep <= generatedTokens.length) { // Generate Steps
+                    const stepIndex = currentStep - 1;
+                    const newToken = generatedTokens[stepIndex];
+                    explanationDiv.innerHTML = `<strong>${stepIndex + 2}. Generate Token (${stepIndex + 1}/${generatedTokens.length}):</strong> 새로운 토큰 '${newToken}'을 생성합니다.`;
+                    
+                    // With Cache
+                    inputWithCache.innerHTML = '';
+                    inputWithCache.appendChild(createTokenElement(newToken, 'generated'));
+                    attnWithCache.innerHTML = '';
+                    attnWithCache.appendChild(createAttentionDiagram(1, fullSequence.length));
+                    
+                    // Without Cache
+                    const newFullLength = fullSequence.length + 1;
+                    inputWithoutCache.innerHTML = '';
+                    [...fullSequence, newToken].forEach((t, i) => {
+                        inputWithoutCache.appendChild(createTokenElement(t, i < promptTokens.length ? 'prompt' : 'generated'));
+                    });
+                    attnWithoutCache.innerHTML = '';
+                    attnWithoutCache.appendChild(createAttentionDiagram(newFullLength, newFullLength));
+                    
+                    await sleep(500);
+
+                    const newCacheToken = createTokenElement(newToken, 'generated');
+                    kvCacheArea.appendChild(newCacheToken);
+                    outputArea.appendChild(newCacheToken.cloneNode(true));
+                    fullSequence.push(newToken);
+                }
+
+                if (currentStep >= generatedTokens.length) {
+                    generateBtn.disabled = true;
+                    explanationDiv.innerHTML = '<strong>완료:</strong> 모든 토큰 생성이 완료되었습니다. 리셋 버튼을 눌러 다시 시작하세요.';
+                } else {
+                    generateBtn.disabled = false;
+                }
+                isAnimating = false;
+            }
+
+            function handleGenerateClick() {
+                if (!isAnimating && currentStep < generatedTokens.length) {
+                    currentStep++;
+                    updateUI();
+                }
+            }
+            
+            function handleResetClick() {
+                if (isAnimating) return;
+                currentStep = -1;
+                fullSequence = [];
+                
+                explanationDiv.textContent = "'Generate Token' 버튼을 눌러 시작하세요.";
+                [inputWithCache, kvCacheArea, attnWithCache, inputWithoutCache, attnWithoutCache, outputArea].forEach(el => {
+                    el.innerHTML = `<span class="text-gray-400">대기 중...</span>`;
+                });
+                kvCacheArea.innerHTML = `<span class="text-gray-400">Prefill 필요</span>`;
+
                 generateBtn.disabled = false;
             }
-        }
 
-        function handleGenerateClick() {
-            currentStep++;
-            updateUI();
-        }
-        
-        function handleResetClick() {
-            currentStep = -1;
-            fullSequence = [];
-            
-            explanationDiv.textContent = "'Generate Token' 버튼을 눌러 시작하세요.";
-            inputWithCache.innerHTML = `<span class="text-gray-400">대기 중...</span>`;
-            kvCacheArea.innerHTML = `<span class="text-gray-400">Prefill 필요</span>`;
-            calcWithCache.textContent = '0';
-            
-            inputWithoutCache.innerHTML = `<span class="text-gray-400">대기 중...</span>`;
-            calcWithoutCache.textContent = '0';
-            
-            outputArea.innerHTML = `<span class="text-gray-400">생성 대기 중...</span>`;
-            generateBtn.disabled = false;
-        }
-
-        generateBtn.addEventListener('click', handleGenerateClick);
-        resetBtn.addEventListener('click', handleResetClick);
+            generateBtn.addEventListener('click', handleGenerateClick);
+            resetBtn.addEventListener('click', handleResetClick);
+        });
     </script>
 </body>
 </html>
-
-```
