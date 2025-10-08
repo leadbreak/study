@@ -115,12 +115,13 @@ class GQA(nn.Module):
         if kv_cache is not None and kv_cache[0] is not None and kv_cache[0].numel()>0:
             pk,pv = kv_cache; k = torch.cat([pk,k], dim=2); v = torch.cat([pv,v], dim=2)
 
-        # Apply RoPE once
+        # Apply RoPE: RoPE를 적용한 후 repeat_interleave를 수행해야 함
         if self.rope is not None:
             pos_q = torch.arange(k.size(2)-T, k.size(2), device=x.device)
             pos_k = torch.arange(0, k.size(2), device=x.device)
             q = self.rope.apply(q, pos_q)
-            k_full = self.rope.apply(k.repeat_interleave(self.rep, dim=1), pos_k)
+            k = self.rope.apply(k, pos_k)
+            k_full = k.repeat_interleave(self.rep, dim=1)
         else:
             k_full = k.repeat_interleave(self.rep, dim=1)
 

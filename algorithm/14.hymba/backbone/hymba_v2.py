@@ -341,10 +341,9 @@ class HymbaV2(nn.Module):
         if targets is not None:
             if self.meta is not None:
                 M = self.meta.size(1)
-                # 메타토큰 위치는 타깃이 없으므로, 메타 한 칸 뒤부터 정렬
-                # logits[:, M-1 : M-1+T] ↔ targets[:,:T]
-                start = M-1
-                logits_for_loss = logits[:, start : start+T, :]
+                # 메타토큰 M개를 건너뛰고, 실제 토큰 위치의 logits만 사용
+                # logits[:, M:M+T, :] ↔ targets[:, :T]
+                logits_for_loss = logits[:, M:M+T, :]
             else:
                 logits_for_loss = logits[:, :-1, :]
                 targets = targets[:, 1:]
