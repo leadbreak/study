@@ -37,23 +37,27 @@ class SSM(nn.Module):
 
     With selective parameters (Δ, B, C) that depend on input x.
     """
-    def __init__(self, d_inner: int, state_size: int, device='cuda'):
+    def __init__(self, d_inner: int, state_size: int, device=None):
         super().__init__()
         self.d_inner = d_inner
         self.state_size = state_size
+        # Device will be set when the module is moved to a device
+        if device is None:
+            device = 'cpu'
         self.device = device
 
         # Input projection to Δ, B, C
         dt_rank = max(1, math.ceil(d_inner / 16))
-        self.x_proj = nn.Linear(d_inner, dt_rank + state_size * 2, bias=False, device=device)
-        self.dt_proj = nn.Linear(dt_rank, d_inner, bias=True, device=device)
+        self.x_proj = nn.Linear(d_inner, dt_rank + state_size * 2, bias=False)
+        self.dt_proj = nn.Linear(dt_rank, d_inner, bias=True)
 
         # State matrix A (initialized as stable diagonal)
-        A = torch.arange(1, state_size + 1, dtype=torch.float32, device=device).repeat(d_inner, 1)
+        # Will be initialized on proper device when moved
+        A = torch.arange(1, state_size + 1, dtype=torch.float32).repeat(d_inner, 1)
         self.A_log = nn.Parameter(torch.log(A))  # (d_inner, N)
 
         # Feedthrough D
-        self.D = nn.Parameter(torch.ones(d_inner, device=device))
+        self.D = nn.Parameter(torch.ones(d_inner))
 
         # Numerical stability constants
         self.log_eps = -7.0  # log(1e-7)
@@ -150,16 +154,19 @@ class MambaBlock(nn.Module):
         x → Norm → Proj → [Conv → SiLU → SSM] ⊗ [SiLU] → Proj → + Residual
     """
     def __init__(self, d_model: int, state_size: int = 16, d_conv: int = 4,
-                 expand: int = 2, dropout: float = 0.1, device='cuda'):
+                 expand: int = 2, dropout: float = 0.1, device=None):
         super().__init__()
         self.d_model = d_model
         self.d_inner = int(expand * d_model)
         self.state_size = state_size
         self.d_conv = d_conv
+        # Device will be set when module is moved to a device
+        if device is None:
+            device = 'cpu'
         self.device = device
 
         # Input projection (expand to 2 * d_inner for split into x and z)
-        self.in_proj = nn.Linear(d_model, 2 * self.d_inner, bias=False, device=device)
+        self.in_proj = nn.Linear(d_model, 2 * self.d_inner, bias=False)
 
         # Depthwise convolution
         self.conv1d = nn.Conv1d(
@@ -169,14 +176,13 @@ class MambaBlock(nn.Module):
             kernel_size=d_conv,
             groups=self.d_inner,
             padding=d_conv - 1,
-            device=device,
         )
 
         # SSM module
         self.ssm = SSM(self.d_inner, state_size, device=device)
 
         # Output projection
-        self.out_proj = nn.Linear(self.d_inner, d_model, bias=False, device=device)
+        self.out_proj = nn.Linear(self.d_inner, d_model, bias=False)
 
         # Normalization
         self.norm = RMSNorm(d_model, eps=1e-5)
@@ -250,6 +256,7 @@ class MambaModel(nn.Module):
         self.dropout_emb = nn.Dropout(cfg.dropout)
 
         # Mamba blocks
+        # Device will be set when the model is moved via .to(device)
         self.layers = nn.ModuleList([
             MambaBlock(
                 d_model=cfg.d_model,
@@ -257,7 +264,7 @@ class MambaModel(nn.Module):
                 d_conv=cfg.d_conv,
                 expand=cfg.expand,
                 dropout=cfg.dropout,
-                device='cuda' if torch.cuda.is_available() else 'cpu'
+                device=None  # Will be set via .to(device)
             )
             for _ in range(cfg.n_layers)
         ])
