@@ -271,8 +271,12 @@ class ModelCfg:
     # SWA 설정
     swa_layers: T.Tuple[int,...] = (1,2,3,4,5,7,8,9,10)  # 예: 0,6,11 global / 그 외 SWA
     swa_window: int = 256
-    # 메타토큰(옵션) — 여기선 미사용 경로로 둠
-    num_meta_tokens: int = 0
+    # Meta Tokens: Learnable prefix tokens that aggregate global context
+    # - Prepended to input embeddings (before attention layers)
+    # - Act as global memory across all layers
+    # - Excluded from loss calculation
+    # Recommended: 4-8 tokens for typical sequence modeling tasks
+    num_meta_tokens: int = 4
 
 class HymbaV2(nn.Module):
     def __init__(self, cfg:ModelCfg):
@@ -516,11 +520,21 @@ def train_loop(model:HymbaV2, train_dl, val_dl, tcfg:TrainCfg, device:str="cuda"
     return {"train_loss": float(train_loss), "val_loss": float(val_loss), "ppl": float(ppl), "tps": tps}
 
 # ===================== Build convenience =====================
-def build_everything(seq_len:int=512, bs:int=32, vocab_size:int=8000):
+def build_everything(seq_len:int=512, bs:int=32, vocab_size:int=8000, num_meta_tokens:int=4):
+    """
+    Build Hymba model with dataset and tokenizer.
+
+    Args:
+        seq_len: Sequence length for training
+        bs: Batch size
+        vocab_size: Vocabulary size for tokenizer
+        num_meta_tokens: Number of learnable meta tokens (default: 4)
+                        Set to 0 to disable meta tokens
+    """
     text = get_corpus("karpathy/tiny_shakespeare")
     tok = train_unigram(text, vocab_size=vocab_size)
     train_dl, val_dl = build_dataloaders(tok, text, seq_len=seq_len, bs=bs)
 
-    cfg = ModelCfg(vocab_size=tok.vocab_size, seq_len=seq_len)
+    cfg = ModelCfg(vocab_size=tok.vocab_size, seq_len=seq_len, num_meta_tokens=num_meta_tokens)
     model = HymbaV2(cfg)
     return model, tok, train_dl, val_dl

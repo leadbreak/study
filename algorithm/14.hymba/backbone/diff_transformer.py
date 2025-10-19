@@ -65,6 +65,28 @@ class DiffAttention(nn.Module):
         self.rope = RotaryEmbedding(self.Dh)
         self.drop = nn.Dropout(dropout)
 
+    def compute_lambda(self):
+        """
+        Compute learnable lambda for differential attention.
+
+        According to the paper:
+        λ = exp(λ_q1 · λ_k1) - exp(λ_q2 · λ_k2) + λ_init
+
+        This allows the model to learn how much to subtract the second attention
+        pattern from the first, enabling adaptive noise filtering.
+
+        Returns:
+            lambda_learned: Scalar value for differential weighting
+        """
+        # Inner product of parameter vectors
+        term1 = torch.exp(torch.sum(self.lambda_q1 * self.lambda_k1))
+        term2 = torch.exp(torch.sum(self.lambda_q2 * self.lambda_k2))
+
+        # Differential lambda with init bias
+        lambda_learned = term1 - term2 + self.lambda_init
+
+        return lambda_learned
+
     def forward(self, x: torch.Tensor, kv_cache: T.Tuple[torch.Tensor, torch.Tensor] | None = None,
                 return_attn: bool = False):
         """
@@ -125,8 +147,9 @@ class DiffAttention(nn.Module):
         attn1 = F.softmax(scores1, dim=-1)
         attn2 = F.softmax(scores2, dim=-1)
 
-        # Learnable lambda (using simple init value for now, can be enhanced with learned params)
-        attn_diff = attn1 - self.lambda_init * attn2
+        # Compute learnable lambda for differential weighting
+        lambda_weight = self.compute_lambda()
+        attn_diff = attn1 - lambda_weight * attn2
         attn_diff = self.drop(attn_diff)
 
         # Apply attention to values
