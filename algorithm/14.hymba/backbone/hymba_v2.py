@@ -127,7 +127,7 @@ class AttnLayer(nn.Module):
     - role="follower": 오너 캐시(K/V)를 그대로 사용(Q만 계산), 캐시 갱신 안 함
     - local=True → 슬라이딩윈도우 SWA (window tokens)
     """
-    def __init__(self, d:int, n_heads:int, n_kv:int, local:bool=False, window:int=256, dropout:float=0.0):
+    def __init__(self, d:int, n_heads:int, n_kv:int, local:bool=False, window:int=256, dropout:float=0.0, num_meta_tokens:int=0):
         super().__init__()
         assert d % n_heads == 0
         self.H = n_heads; self.KV = n_kv; self.Dh = d // n_heads
@@ -138,6 +138,7 @@ class AttnLayer(nn.Module):
         self.rope = RotaryEmbedding(self.Dh)
         self.drop = nn.Dropout(dropout)
         self.local = local; self.window = window
+        self.num_meta_tokens = num_meta_tokens
         self.rep = self.H // self.KV
 
     def _local_slice(self, k, v, Tq:int):
@@ -155,6 +156,7 @@ class AttnLayer(nn.Module):
         kv_cache: tuple[torch.Tensor, torch.Tensor] | None = None,
         role: str = "owner",
         global_mask: torch.Tensor | None = None,
+        return_attn: bool = False,
     ):
         """
         AttnLayer forward
@@ -162,6 +164,7 @@ class AttnLayer(nn.Module):
         - role == "owner"    : K/V를 계산(증분 concat 포함)하고 캐시 갱신/반환
         - role == "follower" : owner의 KV 캐시를 그대로 사용(Q만 계산), 캐시 갱신/반환 없음
         - self.local == True : Sliding-Window Attention (window=self.window)
+        - return_attn: If True, return attention weights
         Shapes
         q: (B, H, T, Dh)
         k: owner  -> (B, KV, Tc, Dh)  (cache 포함)
@@ -192,13 +195,53 @@ class AttnLayer(nn.Module):
             Tk = k_full.size(2)
 
             # SDPA (로컬도 인과 True로 사용, 슬라이스로 윈도우 제한됨)
-            q_ = q.reshape(B * self.H, T, self.Dh)
-            k_ = k_full.reshape(B * self.H, Tk, self.Dh)
-            v_ = v_full.reshape(B * self.H, Tk, self.Dh)
-            out = _scaled_dot_attn(q_, k_, v_, mask_2d=None,
-                                p=float(self.drop.p), training=self.training, is_causal=True)
-            out = out.view(B, self.H, T, self.Dh).transpose(1, 2).reshape(B, T, self.H * self.Dh)
-            return self.o(out), None  # follower는 캐시 반환/갱신 없음
+            if return_attn:
+                # Manual computation to get attention weights
+                scale = 1.0 / math.sqrt(self.Dh)
+                scores = torch.matmul(q, k_full.transpose(-2, -1)) * scale  # (B, H, T, Tk)
+                if Tk > 1:
+                    mask = torch.triu(torch.full((T, Tk), float('-inf'), device=x.device), diagonal=Tk - T + 1)
+                    scores = scores + mask.unsqueeze(0).unsqueeze(0)
+                attn = F.softmax(scores, dim=-1)
+                attn = self.drop(attn) if self.training else attn
+                out = torch.matmul(attn, v_full)  # (B, H, T, Dh)
+                out = out.transpose(1, 2).reshape(B, T, self.H * self.Dh)
+                out = self.o(out)
+
+                # For visualization: expand SWA attention to full-size matrix
+                # follower uses owner's cache, so we need to get Tc from cache
+                Tc = k_cache[0].size(2) if (k_cache is not None and k_cache[0] is not None) else Tk
+
+                if self.local and Tk < Tc:
+                    # SWA case: k_full was sliced to last Tk positions: [Tc-Tk, Tc)
+                    full_attn = torch.zeros(B, self.H, T, Tc, device=attn.device, dtype=attn.dtype)
+                    k_slice_start = Tc - Tk
+
+                    for t in range(T):
+                        q_abs = Tc - T + t
+                        desired_k_start = max(0, q_abs - self.window + 1)
+                        desired_k_end = q_abs + 1
+                        actual_k_start = max(desired_k_start, k_slice_start)
+                        actual_k_end = min(desired_k_end, Tc)
+
+                        if actual_k_start < actual_k_end:
+                            slice_idx_start = actual_k_start - k_slice_start
+                            slice_idx_end = actual_k_end - k_slice_start
+                            full_attn[:, :, t, actual_k_start:actual_k_end] = attn[:, :, t, slice_idx_start:slice_idx_end]
+
+                    attn_to_return = full_attn
+                else:
+                    attn_to_return = attn
+
+                return out, None, attn_to_return  # follower는 캐시 반환/갱신 없음
+            else:
+                q_ = q.reshape(B * self.H, T, self.Dh)
+                k_ = k_full.reshape(B * self.H, Tk, self.Dh)
+                v_ = v_full.reshape(B * self.H, Tk, self.Dh)
+                out = _scaled_dot_attn(q_, k_, v_, mask_2d=None,
+                                    p=float(self.drop.p), training=self.training, is_causal=True)
+                out = out.view(B, self.H, T, self.Dh).transpose(1, 2).reshape(B, T, self.H * self.Dh)
+                return self.o(out), None  # follower는 캐시 반환/갱신 없음
 
         # --- owner 경로 ---
         # 현재 토큰에서 K/V 투영
@@ -226,37 +269,112 @@ class AttnLayer(nn.Module):
         k_full = k_cat.repeat_interleave(self.rep, dim=1)               # (B,H,Tc,Dh)
         v_full = v_cat.repeat_interleave(self.rep, dim=1)
 
-        # 로컬(SWA) 윈도우 슬라이스
-        k_full, v_full = self._local_slice(k_full, v_full, T)           # (B,H,Tk,Dh)
-        Tk = k_full.size(2)
-
         # SDPA
-        q_ = q.reshape(B * self.H, T, self.Dh)
-        k_ = k_full.reshape(B * self.H, Tk, self.Dh)
-        v_ = v_full.reshape(B * self.H, Tk, self.Dh)
-        out = _scaled_dot_attn(q_, k_, v_, mask_2d=None,
-                            p=float(self.drop.p), training=self.training, is_causal=True)
-        out = out.view(B, self.H, T, self.Dh).transpose(1, 2).reshape(B, T, self.H * self.Dh)
-        out = self.o(out)
+        if return_attn and self.local:
+            # For visualization: compute per-query windows to show true SWA pattern
+            # This is different from training where we use a shared window for efficiency
+            scale = 1.0 / math.sqrt(self.Dh)
+            full_attn = torch.zeros(B, self.H, T, Tc, device=x.device, dtype=k_cat.dtype)
 
-        # owner만 최신 캐시(k_cat, v_cat)를 반환(원본 KV 차원 유지: (B,KV,Tc,Dh))
-        return out, (k_cat, v_cat)
+            for t in range(T):
+                # Absolute position of this query
+                q_abs = Tc - T + t
+
+                # SWA window: [max(num_meta, q_abs - window + 1), q_abs]
+                # BUT: meta tokens [0:num_meta] are ALWAYS included
+                window_start = max(self.num_meta_tokens, q_abs - self.window + 1)
+                window_end = q_abs + 1
+
+                # Build key/value tensors: meta tokens + window
+                if self.num_meta_tokens > 0:
+                    # Include meta tokens [0:num_meta] + window [window_start:window_end]
+                    k_meta = k_full[:, :, :self.num_meta_tokens, :]  # (B, H, M, Dh)
+                    v_meta = v_full[:, :, :self.num_meta_tokens, :]
+                    k_window_regular = k_full[:, :, window_start:window_end, :]  # (B, H, win_len, Dh)
+                    v_window_regular = v_full[:, :, window_start:window_end, :]
+
+                    # Concatenate: [meta | regular_window]
+                    k_window = torch.cat([k_meta, k_window_regular], dim=2)
+                    v_window = torch.cat([v_meta, v_window_regular], dim=2)
+
+                    # Attention indices in full matrix: [0:num_meta] + [window_start:window_end]
+                    key_indices = list(range(self.num_meta_tokens)) + list(range(window_start, window_end))
+                else:
+                    k_window = k_full[:, :, window_start:window_end, :]
+                    v_window = v_full[:, :, window_start:window_end, :]
+                    key_indices = list(range(window_start, window_end))
+
+                # Compute attention for this query
+                q_single = q[:, :, t:t+1, :]  # (B, H, 1, Dh)
+                scores = torch.matmul(q_single, k_window.transpose(-2, -1)) * scale  # (B, H, 1, total_keys)
+
+                attn_window = F.softmax(scores, dim=-1)
+                attn_window = self.drop(attn_window) if self.training else attn_window
+
+                # Place in full attention matrix at correct positions
+                for i, k_idx in enumerate(key_indices):
+                    full_attn[:, :, t, k_idx] = attn_window[:, :, 0, i]
+
+            # Compute output using full attention
+            # Since full_attn has correct weights at correct positions, we can use matmul directly
+            out = torch.matmul(full_attn, v_full)  # (B, H, T, Dh)
+            out = out.transpose(1, 2).reshape(B, T, self.H * self.Dh)
+            out = self.o(out)
+
+            return out, (k_cat, v_cat), full_attn
+        elif return_attn:
+            # Global attention with return_attn (non-local case)
+            scale = 1.0 / math.sqrt(self.Dh)
+            scores = torch.matmul(q, k_full.transpose(-2, -1)) * scale  # (B, H, T, Tc)
+            if Tc > 1:
+                mask = torch.triu(torch.full((T, Tc), float('-inf'), device=x.device), diagonal=Tc - T + 1)
+                scores = scores + mask.unsqueeze(0).unsqueeze(0)
+            attn = F.softmax(scores, dim=-1)
+            attn = self.drop(attn) if self.training else attn
+            out = torch.matmul(attn, v_full)  # (B, H, T, Dh)
+            out = out.transpose(1, 2).reshape(B, T, self.H * self.Dh)
+            out = self.o(out)
+
+            # owner만 최신 캐시(k_cat, v_cat)를 반환(원본 KV 차원 유지: (B,KV,Tc,Dh))
+            return out, (k_cat, v_cat), attn
+        else:
+            # Training path: use efficient shared window for SWA
+            k_full, v_full = self._local_slice(k_full, v_full, T)           # (B,H,Tk,Dh)
+            Tk = k_full.size(2)
+            q_ = q.reshape(B * self.H, T, self.Dh)
+            k_ = k_full.reshape(B * self.H, Tk, self.Dh)
+            v_ = v_full.reshape(B * self.H, Tk, self.Dh)
+            out = _scaled_dot_attn(q_, k_, v_, mask_2d=None,
+                                p=float(self.drop.p), training=self.training, is_causal=True)
+            out = out.view(B, self.H, T, self.Dh).transpose(1, 2).reshape(B, T, self.H * self.Dh)
+            out = self.o(out)
+
+            # owner만 최신 캐시(k_cat, v_cat)를 반환(원본 KV 차원 유지: (B,KV,Tc,Dh))
+            return out, (k_cat, v_cat)
 
 
 class Block(nn.Module):
     """하나의 어텐션(+FFN) 블록. local=True면 SWA, False면 Global."""
-    def __init__(self, d:int, n_heads:int, n_kv:int, local:bool, window:int, dropout:float):
+    def __init__(self, d:int, n_heads:int, n_kv:int, local:bool, window:int, dropout:float, num_meta_tokens:int=0):
         super().__init__()
         self.pre = RMSNorm(d)
-        self.attn = AttnLayer(d, n_heads, n_kv, local=local, window=window, dropout=dropout)
+        self.attn = AttnLayer(d, n_heads, n_kv, local=local, window=window, dropout=dropout, num_meta_tokens=num_meta_tokens)
         self.post = RMSNorm(d)
         self.ffn = SwiGLU(d, mult=4.0, p=dropout)
-    def forward(self, x, kv_cache=None, global_mask=None, training=True, role:str="owner"):
+    def forward(self, x, kv_cache=None, global_mask=None, training=True, role:str="owner", return_attn:bool=False):
         h = self.pre(x)
-        a, new_cache = self.attn(h, kv_cache=kv_cache if not training else None, role=role, global_mask=global_mask)
-        x = x + a
-        x = x + self.ffn(self.post(x))
-        return x, new_cache
+        attn_result = self.attn(h, kv_cache=kv_cache if not training else None, role=role, global_mask=global_mask, return_attn=return_attn)
+
+        if return_attn:
+            a, new_cache, attn_weights = attn_result
+            x = x + a
+            x = x + self.ffn(self.post(x))
+            return x, attn_weights  # Return attention weights instead of cache for visualization
+        else:
+            a, new_cache = attn_result
+            x = x + a
+            x = x + self.ffn(self.post(x))
+            return x, new_cache
 
 # ===================== Model =====================
 @dataclass
@@ -292,7 +410,8 @@ class HymbaV2(nn.Module):
         for li in range(cfg.n_layers):
             is_local = (li in self.swa_layers)
             self.blocks.append(Block(cfg.d_model, cfg.n_heads, cfg.n_kv_heads,
-                                     local=is_local, window=cfg.swa_window, dropout=cfg.dropout))
+                                     local=is_local, window=cfg.swa_window, dropout=cfg.dropout,
+                                     num_meta_tokens=cfg.num_meta_tokens))
         self.norm = RMSNorm(cfg.d_model)
         self.head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
 
@@ -323,11 +442,14 @@ class HymbaV2(nn.Module):
                 i+=1
 
     # ------ Teacher-forcing forward (학습/평가용 NLL) ------
-    def forward(self, input_ids:torch.LongTensor, targets:torch.LongTensor|None=None):
+    def forward(self, input_ids:torch.LongTensor, targets:torch.LongTensor|None=None, return_attn:bool=False):
         """
         Meta tokens:
           - 입력 임베딩 앞에 [num_meta_tokens]개를 prepend.
           - loss 계산 시 meta 구간을 제외한 토큰에 대해서만 CrossEntropy.
+
+        Args:
+            return_attn: If True, returns attention weights from all attention layers
         """
         B, T = input_ids.shape
         x = self.embed(input_ids)                         # (B,T,D)
@@ -336,12 +458,23 @@ class HymbaV2(nn.Module):
             x = torch.cat([meta, x], dim=1)              # (B,M+T,D)
 
         h = x
+        attn_maps = [] if return_attn else None
+
         for li, blk in enumerate(self.blocks):
-            h,_ = blk(h, kv_cache=None, global_mask=None, training=True, role="owner")
+            if return_attn:
+                # Extract attention with return_attn=True
+                h, attn_weights = blk(h, kv_cache=None, global_mask=None, training=True, role="owner", return_attn=True)
+                attn_maps.append(attn_weights)
+            else:
+                h, _ = blk(h, kv_cache=None, global_mask=None, training=True, role="owner")
+
         h = self.norm(h)
         logits = self.head(h)                             # (B,M+T,V)
 
         out = {"logits": logits}
+        if return_attn:
+            out["attn_weights"] = attn_maps
+
         if targets is not None:
             if self.meta is not None:
                 M = self.meta.size(1)
