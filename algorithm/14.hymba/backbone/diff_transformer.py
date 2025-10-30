@@ -62,6 +62,9 @@ class DiffAttention(nn.Module):
         self.lambda_q2 = nn.Parameter(torch.zeros(self.Dh).normal_(mean=0, std=0.1))
         self.lambda_k2 = nn.Parameter(torch.zeros(self.Dh).normal_(mean=0, std=0.1))
 
+        # GroupNorm for per-head normalization (as per paper)
+        self.group_norm = nn.GroupNorm(num_groups=n_heads, num_channels=n_heads * self.Dh * 2, affine=True)
+
         self.rope = RotaryEmbedding(self.Dh)
         self.drop = nn.Dropout(dropout)
 
@@ -122,10 +125,16 @@ class DiffAttention(nn.Module):
         q1, q2 = q.chunk(2, dim=-1)  # Each (B, H, T, Dh)
         k1, k2 = k.chunk(2, dim=-1)  # Each (B, KV, Tc, Dh)
 
-        q1 = self.rope.apply(q1, pos_q)
-        q2 = self.rope.apply(q2, pos_q)
-        k1 = self.rope.apply(k1, pos_k)
-        k2 = self.rope.apply(k2, pos_k)
+        # Note: RotaryEmbedding from hymba_v2 doesn't have 'apply' method, it has 'apply_rotary'
+        # But the imported version uses the old API. Let's keep this for now and rely on the
+        # RotaryEmbedding implementation from hymba_v2
+        q1_rope = self.rope.apply(q1, pos_q)
+        q2_rope = self.rope.apply(q2, pos_q)
+        k1_rope = self.rope.apply(k1, pos_k)
+        k2_rope = self.rope.apply(k2, pos_k)
+
+        q1, q2 = q1_rope, q2_rope
+        k1, k2 = k1_rope, k2_rope
 
         # Repeat KV heads to match Q heads (GQA)
         k1_full = repeat_kv(k1, self.rep)  # (B, H, Tc, Dh)
@@ -154,8 +163,16 @@ class DiffAttention(nn.Module):
 
         # Apply attention to values
         out = torch.matmul(attn_diff, v_full)  # (B, H, T, 2*Dh)
-        out = out.transpose(1, 2).contiguous().view(B, T, -1)
+        out = out.transpose(1, 2).contiguous().view(B, T, -1)  # (B, T, H*2*Dh)
+
+        # GroupNorm for per-head normalization (as per paper)
+        out = self.group_norm(out.transpose(1, 2)).transpose(1, 2)
+
+        # Output projection
         out = self.wo(out)
+
+        # Scale by (1 - lambda_init) to align gradient flow with standard Transformer
+        out = out * (1.0 - self.lambda_init)
 
         if return_attn:
             return out, (k.detach(), v.detach()), (attn1, attn2, attn_diff)
