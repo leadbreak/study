@@ -1,12 +1,12 @@
 """
 Hymba: Hybrid-head Architecture for Small Language Models
 
-공식 논문 기반 완전 통합 구현 (arXiv:2411.13676)
-- Mamba-only, Transformer-only, Hybrid 지원
-- 정확한 Global/Local Attention 패턴
-- FlexAttention (PyTorch 2.5+)
+공식 논문 기반 정확 재현 (arXiv:2411.13676)
+- 병렬 Attention + Mamba (동일 입력, per-channel β scaling)
+- Global/Local Attention 패턴 (첫/중간/마지막 = Global)
+- Meta Tokens (128개)
 - Cross-layer KV 공유
-- 모든 레거시 코드 제거
+- FlexAttention (PyTorch 2.5+)
 
 참고:
 - 논문: https://arxiv.org/abs/2411.13676
@@ -154,7 +154,7 @@ class TransformerAttention(nn.Module):
 
     특징:
     - FlexAttention 지원 (PyTorch 2.5+)
-    - Sliding Window Attention
+    - Sliding Window Attention (마스크 기반)
     - Grouped Query Attention (GQA)
     - RoPE
     - 메타 토큰 지원
@@ -222,29 +222,42 @@ class TransformerAttention(nn.Module):
 
     def _make_causal_mask(self, T: int, Tk: int, device) -> torch.Tensor:
         """인과적 마스크 생성 (미래 차단)"""
-        return torch.triu(torch.full((T, Tk), float('-inf'), device=device), diagonal=1)
+        # T: query length, Tk: key length
+        # Query 위치 i는 Key 위치 0~i까지만 참조 가능
+        row_idx = torch.arange(T, device=device).unsqueeze(1)  # [T, 1]
+        col_idx = torch.arange(Tk, device=device).unsqueeze(0)  # [1, Tk]
+        # col_idx > row_idx + (Tk - T) 인 경우 마스킹 (미래 토큰)
+        offset = Tk - T  # KV cache가 있을 때의 offset
+        mask = torch.where(col_idx > row_idx + offset, float('-inf'), 0.0)
+        return mask
 
-    def _apply_window(self, k, v, T):
-        """Sliding Window 적용
+    def _make_swa_mask(self, T: int, Tk: int, device) -> torch.Tensor:
+        """Sliding Window Attention 마스크 (논문 방식: 마스크 기반)
 
-        메타 토큰은 항상 유지
-        일반 토큰은 최근 window 크기만큼만 유지
+        특징:
+        - Causal + Window 제한
+        - Meta token은 항상 참조 가능
+        - KV를 truncate하지 않고 마스크로 처리
         """
-        if self.attn_type != AttentionType.LOCAL:
-            return k, v
+        mask = torch.full((T, Tk), float('-inf'), device=device)
+        offset = Tk - T  # KV cache offset
 
-        Tk = k.size(2)
-        if self.num_meta > 0:
-            # 메타 + 윈도우
-            meta_k, meta_v = k[:, :, :self.num_meta], v[:, :, :self.num_meta]
-            content_k, content_v = k[:, :, self.num_meta:], v[:, :, self.num_meta:]
-            w = min(self.window, content_k.size(2))
-            content_k, content_v = content_k[:, :, -w:], content_v[:, :, -w:]
-            return torch.cat([meta_k, content_k], 2), torch.cat([meta_v, content_v], 2)
-        else:
-            # 윈도우만
-            w = min(self.window, Tk)
-            return k[:, :, -w:], v[:, :, -w:]
+        for i in range(T):
+            # Meta tokens: 항상 참조 가능
+            if self.num_meta > 0:
+                mask[i, :self.num_meta] = 0.0
+
+            # Content tokens: Causal + Window
+            # 현재 쿼리 위치에 해당하는 절대 위치
+            abs_q_pos = i + offset
+            # Window 시작 위치 (meta token 이후부터)
+            window_start = max(self.num_meta, abs_q_pos - self.window + 1)
+            # Window 끝 위치 (causal: 현재까지만)
+            window_end = abs_q_pos + 1
+
+            mask[i, window_start:window_end] = 0.0
+
+        return mask
 
     def forward(
         self,
@@ -293,8 +306,6 @@ class TransformerAttention(nn.Module):
         k_full = repeat_kv(k, self.rep)
         v_full = repeat_kv(v, self.rep)
 
-        # Sliding Window 적용
-        k_full, v_full = self._apply_window(k_full, v_full, T)
         Tk = k_full.size(2)
 
         # Attention 계산
@@ -306,16 +317,14 @@ class TransformerAttention(nn.Module):
             out = self.flex_attn(q, k_full, v_full, block_mask=block_mask)
             out = out.transpose(1, 2).reshape(B, T, self.H * self.Dh)
 
-        elif HAS_FLASH_ATTN and not return_attn and self.num_meta == 0:
-            # Flash Attention (fp16/bf16만 지원)
+        elif HAS_FLASH_ATTN and not return_attn and self.num_meta == 0 and self.attn_type == AttentionType.GLOBAL:
+            # Flash Attention (Global only, no meta tokens)
             q_f = q.transpose(1, 2)
             k_f = k_full.transpose(1, 2)
             v_f = v_full.transpose(1, 2)
 
-            # Flash Attention은 fp16 또는 bf16만 지원
             input_dtype = q_f.dtype
             if input_dtype not in [torch.float16, torch.bfloat16]:
-                # bf16이 가능하면 bf16, 아니면 fp16 사용
                 if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
                     flash_dtype = torch.bfloat16
                 else:
@@ -326,12 +335,8 @@ class TransformerAttention(nn.Module):
             else:
                 flash_dtype = input_dtype
 
-            if self.attn_type == AttentionType.LOCAL:
-                out = flash_attn_func(q_f, k_f, v_f, causal=True, window_size=(self.window, self.window))
-            else:
-                out = flash_attn_func(q_f, k_f, v_f, causal=True)
+            out = flash_attn_func(q_f, k_f, v_f, causal=True)
 
-            # 원래 dtype으로 복원
             if flash_dtype != input_dtype:
                 out = out.to(input_dtype)
 
@@ -342,8 +347,13 @@ class TransformerAttention(nn.Module):
             scale = 1.0 / math.sqrt(self.Dh)
             scores = torch.matmul(q, k_full.transpose(-2, -1)) * scale
 
-            if Tk > 1:
-                scores = scores + self._make_causal_mask(T, Tk, x.device).unsqueeze(0).unsqueeze(0)
+            # 마스크 적용 (SWA 또는 Causal)
+            if self.attn_type == AttentionType.LOCAL:
+                mask = self._make_swa_mask(T, Tk, x.device)
+            else:
+                mask = self._make_causal_mask(T, Tk, x.device)
+
+            scores = scores + mask.unsqueeze(0).unsqueeze(0)
 
             attn = F.softmax(scores, dim=-1)
             attn = self.drop(attn) if self.training else attn
@@ -376,21 +386,25 @@ class MambaLayer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.mamba(x)
 
-# ===================== 하이브리드 블록 =====================
+# ===================== 하이브리드 블록 (논문 정확 재현) =====================
 class HymbaBlock(nn.Module):
-    """Hymba 하이브리드 블록
+    """Hymba 하이브리드 블록 (논문 정확 재현)
+
+    공식 융합 공식:
+    Y = W_out(β_attn · norm(Attn(X)) + β_mamba · norm(Mamba(X)))
+
+    핵심: 동일한 입력 X가 Attention과 Mamba 모두에 전달됨 (분할 X)
 
     3가지 모드:
-    1. Transformer-only (attn_ratio=1.0)
-    2. Mamba-only (attn_ratio=0.0)
-    3. Hybrid (0 < attn_ratio < 1, 공식 Hymba)
+    1. Transformer-only (arch_type=TRANSFORMER_ONLY)
+    2. Mamba-only (arch_type=MAMBA_ONLY)
+    3. Hybrid (arch_type=HYBRID, 공식 Hymba)
     """
 
     def __init__(
         self,
         d_model: int,
         arch_type: ArchType,
-        attn_ratio: float = 0.5,
         n_heads: int = 8,
         n_kv: int = 2,
         attn_type: AttentionType = AttentionType.GLOBAL,
@@ -404,33 +418,32 @@ class HymbaBlock(nn.Module):
     ):
         super().__init__()
         self.arch_type = arch_type
-        self.attn_ratio = attn_ratio
         self.attn_type = attn_type
         self.layer_idx = layer_idx
+        self.d_model = d_model
 
         self.norm1 = RMSNorm(d_model)
 
-        # Attention 경로
+        # Attention 경로 (동일 차원)
         self.has_attn = arch_type in [ArchType.TRANSFORMER_ONLY, ArchType.HYBRID]
         if self.has_attn:
-            attn_dim = d_model if arch_type == ArchType.TRANSFORMER_ONLY else int(d_model * attn_ratio)
-            self.to_attn = nn.Linear(d_model, attn_dim, bias=False)
             self.attn = TransformerAttention(
-                attn_dim, n_heads, n_kv, attn_type, window, dropout, num_meta_tokens, layer_idx=layer_idx
+                d_model, n_heads, n_kv, attn_type, window, dropout, num_meta_tokens, layer_idx=layer_idx
             )
-            self.proj_attn = nn.Linear(attn_dim, d_model, bias=False)
 
-        # Mamba 경로
+        # Mamba 경로 (동일 차원)
         self.has_mamba = arch_type in [ArchType.MAMBA_ONLY, ArchType.HYBRID]
         if self.has_mamba:
-            mamba_dim = d_model if arch_type == ArchType.MAMBA_ONLY else int(d_model * (1 - attn_ratio))
-            self.to_mamba = nn.Linear(d_model, mamba_dim, bias=False)
-            self.mamba = MambaLayer(mamba_dim, mamba_d_state, mamba_d_conv, mamba_expand)
-            self.proj_mamba = nn.Linear(mamba_dim, d_model, bias=False)
+            self.mamba = MambaLayer(d_model, mamba_d_state, mamba_d_conv, mamba_expand)
 
-        # Hybrid fusion (학습 가능한 게이트)
+        # Hybrid fusion: Per-channel learnable scaling + Normalization (논문 방식)
         if arch_type == ArchType.HYBRID:
-            self.gate = nn.Parameter(torch.tensor(attn_ratio))
+            # β_attn, β_mamba: per-channel scaling vectors
+            self.beta_attn = nn.Parameter(torch.ones(d_model))
+            self.beta_mamba = nn.Parameter(torch.ones(d_model))
+            # 각 브랜치 출력에 대한 정규화
+            self.attn_out_norm = RMSNorm(d_model)
+            self.mamba_out_norm = RMSNorm(d_model)
 
         # FFN
         self.norm2 = RMSNorm(d_model)
@@ -461,42 +474,46 @@ class HymbaBlock(nn.Module):
 
         if self.arch_type == ArchType.TRANSFORMER_ONLY:
             # Transformer만
-            attn_in = self.to_attn(h)
-            attn_out, new_cache, attn_w = self.attn(attn_in, kv_cache, return_attn)
-            y = self.proj_attn(attn_out)
+            attn_out, new_cache, attn_w = self.attn(h, kv_cache, return_attn)
+            y = attn_out
             if return_attn:
                 attn_weights = attn_w
 
         elif self.arch_type == ArchType.MAMBA_ONLY:
             # Mamba만
-            mamba_in = self.to_mamba(h)
-            mamba_out = self.mamba(mamba_in)
-            y = self.proj_mamba(mamba_out)
+            mamba_out = self.mamba(h)
+            y = mamba_out
 
-        else:  # HYBRID
-            # Attention
-            attn_in = self.to_attn(h)
-            attn_out, new_cache, attn_w = self.attn(attn_in, kv_cache, return_attn)
-            attn_out = self.proj_attn(attn_out)
+        else:  # HYBRID (논문 방식: 동일 입력, per-channel scaling)
+            # 동일한 입력 h가 두 브랜치에 전달
+            attn_out, new_cache, attn_w = self.attn(h, kv_cache, return_attn)
+            mamba_out = self.mamba(h)
+
             if return_attn:
                 attn_weights = attn_w
 
-            # Mamba
-            mamba_in = self.to_mamba(h)
-            mamba_out = self.mamba(mamba_in)
-            mamba_out = self.proj_mamba(mamba_out)
+            # 논문 공식: Y = β_attn · norm(Attn) + β_mamba · norm(Mamba)
+            attn_normalized = self.attn_out_norm(attn_out)
+            mamba_normalized = self.mamba_out_norm(mamba_out)
 
-            # Learned gate fusion
-            g = torch.sigmoid(self.gate)
-            y = g * attn_out + (1 - g) * mamba_out
+            y = self.beta_attn * attn_normalized + self.beta_mamba * mamba_normalized
 
-        # Residual
+        # Residual + FFN
         x = x + self.drop(y)
         x = x + self.drop(self.ffn(self.norm2(x)))
 
         if return_attn:
             return x, new_cache, attn_weights
         return x, new_cache, None
+
+    def get_fusion_weights(self):
+        """Hybrid fusion 가중치 반환 (시각화용)"""
+        if self.arch_type == ArchType.HYBRID:
+            return {
+                "beta_attn": self.beta_attn.detach().cpu(),
+                "beta_mamba": self.beta_mamba.detach().cpu(),
+            }
+        return None
 
 # ===================== 모델 설정 =====================
 @dataclass
@@ -524,9 +541,6 @@ class HymbaConfig:
     # Global/Local 패턴
     global_attn_indices: Optional[List[int]] = None  # None이면 자동 계산 (첫/중간/마지막)
     swa_window: int = 1024  # 공식 구현과 동일
-
-    # Hybrid 비율
-    attn_ratio: float = 0.5
 
     # Meta Tokens
     use_meta_tokens: bool = True
@@ -590,7 +604,7 @@ class Hymba(nn.Module):
         # 메타 토큰
         self.meta_tokens = None
         if cfg.use_meta_tokens and cfg.num_meta_tokens > 0:
-            self.meta_tokens = nn.Parameter(torch.randn(1, cfg.num_meta_tokens, cfg.d_model))
+            self.meta_tokens = nn.Parameter(torch.randn(1, cfg.num_meta_tokens, cfg.d_model) * 0.02)
 
         # 토큰 임베딩
         self.tok_emb = nn.Embedding(cfg.vocab_size, cfg.d_model)
@@ -601,7 +615,7 @@ class Hymba(nn.Module):
         # KV 공유 설정
         self.owner = list(range(cfg.n_layers))
         if cfg.use_kv_sharing and cfg.arch_type != ArchType.MAMBA_ONLY and len(attn_types) > 0:
-            # Local 레이어끼리 연속으로 페어링
+            # Local 레이어끼리 연속으로 페어링 (Global은 독립)
             i = 0
             while i < cfg.n_layers:
                 if attn_types[i] == AttentionType.LOCAL:
@@ -620,7 +634,6 @@ class Hymba(nn.Module):
             HymbaBlock(
                 cfg.d_model,
                 cfg.arch_type,
-                cfg.attn_ratio,
                 cfg.n_heads,
                 cfg.n_kv_heads,
                 attn_types[i] if i < len(attn_types) else AttentionType.GLOBAL,
@@ -793,3 +806,15 @@ class Hymba(nn.Module):
             "num_global": len(global_layers),
             "num_local": len(local_layers),
         }
+
+    def get_fusion_weights(self):
+        """모든 레이어의 fusion 가중치 반환 (시각화용)"""
+        if self.cfg.arch_type != ArchType.HYBRID:
+            return None
+
+        weights = {}
+        for i, block in enumerate(self.blocks):
+            w = block.get_fusion_weights()
+            if w is not None:
+                weights[i] = w
+        return weights
