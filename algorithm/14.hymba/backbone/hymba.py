@@ -1,23 +1,29 @@
 """
 Hymba: Hybrid-head Architecture for Small Language Models
 
-공식 논문 기반 정확 재현 (arXiv:2411.13676)
-- 병렬 Attention + Mamba (동일 입력, per-channel β scaling)
-- Global/Local Attention 패턴 (첫/중간/마지막 = Global)
-- Meta Tokens (128개)
+유연한 Mamba-Transformer 하이브리드 구현 (arXiv:2411.13676 기반)
+
+특징:
+- 레이어별 Mamba:Transformer 비율 지정 가능 (1:1, 5:1, M:N 등)
+- Global/Local Attention 패턴
+- Meta Tokens
 - Cross-layer KV 공유
 - FlexAttention (PyTorch 2.5+)
+
+지원 구성:
+- Mamba-only: 순수 SSM
+- Transformer-only: 순수 Attention
+- Hybrid: Mamba + Attention (비율 조정 가능)
 
 참고:
 - 논문: https://arxiv.org/abs/2411.13676
 - 공식 코드: https://github.com/NVlabs/hymba
-- HuggingFace: https://huggingface.co/nvidia/Hymba-1.5B-Instruct
 """
 
 from __future__ import annotations
 import math
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Tuple, List, Union
 
@@ -51,9 +57,9 @@ except ImportError:
 # ===================== 아키텍처 타입 정의 =====================
 class ArchType(Enum):
     """모델 아키텍처 타입"""
-    MAMBA_ONLY = "mamba"           # 순수 SSM
+    MAMBA_ONLY = "mamba"              # 순수 SSM
     TRANSFORMER_ONLY = "transformer"  # 순수 Attention
-    HYBRID = "hybrid"              # Attention + Mamba (공식 Hymba)
+    HYBRID = "hybrid"                 # Attention + Mamba 혼합
 
 class AttentionType(Enum):
     """어텐션 타입"""
@@ -62,11 +68,7 @@ class AttentionType(Enum):
 
 # ===================== 기본 레이어 =====================
 class RMSNorm(nn.Module):
-    """RMS Normalization
-
-    표준편차 대신 RMS를 사용한 정규화
-    LayerNorm보다 계산 효율적
-    """
+    """RMS Normalization"""
     def __init__(self, d: int, eps: float = 1e-6):
         super().__init__()
         self.weight = nn.Parameter(torch.ones(d))
@@ -80,11 +82,7 @@ class RMSNorm(nn.Module):
         return (self.weight * x).to(dtype)
 
 class SwiGLU(nn.Module):
-    """SwiGLU Feed-Forward Network
-
-    Swish(SiLU) 활성화와 Gating을 결합
-    공식: SwiGLU(x) = Swish(W1·x) ⊙ (W2·x) → W3
-    """
+    """SwiGLU Feed-Forward Network"""
     def __init__(self, d: int, mult: float = 4.0, dropout: float = 0.0):
         super().__init__()
         h = int(d * mult)
@@ -98,11 +96,7 @@ class SwiGLU(nn.Module):
 
 # ===================== Rotary Position Embedding =====================
 class RotaryEmbedding(nn.Module):
-    """회전 위치 임베딩 (RoPE)
-
-    절대 위치 대신 상대 위치를 회전 행렬로 인코딩
-    장점: 외삽 성능 우수, 위치 정보 자연스럽게 감쇠
-    """
+    """회전 위치 임베딩 (RoPE)"""
     def __init__(self, dim: int, base: float = 10000.0):
         super().__init__()
         inv = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
@@ -111,7 +105,6 @@ class RotaryEmbedding(nn.Module):
         self.register_buffer("_sin", None, persistent=False)
 
     def _build(self, L: int, device, dtype):
-        """캐시 구축 (필요시에만)"""
         if self._cos is not None and self._cos.size(0) >= L:
             return
         t = torch.arange(L, device=device, dtype=self._inv.dtype)
@@ -120,15 +113,6 @@ class RotaryEmbedding(nn.Module):
         self._sin = torch.sin(freqs).to(dtype)
 
     def apply_rotary(self, x: torch.Tensor, pos: torch.Tensor):
-        """회전 임베딩 적용
-
-        Args:
-            x: (B, H, T, Dh) 쿼리 또는 키
-            pos: (T,) 위치 인덱스
-
-        Returns:
-            회전 적용된 텐서
-        """
         self._build(int(pos.max().item()) + 1, x.device, x.dtype)
         cos = self._cos.index_select(0, pos)[None, None, :, :]
         sin = self._sin.index_select(0, pos)[None, None, :, :]
@@ -138,11 +122,7 @@ class RotaryEmbedding(nn.Module):
         return torch.stack([o1, o2], dim=-1).flatten(-2)
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """Grouped Query Attention: KV 헤드 반복
-
-    적은 수의 KV 헤드를 여러 Query 헤드가 공유
-    (B, KV, L, D) -> (B, H, L, D)
-    """
+    """Grouped Query Attention: KV 헤드 반복"""
     if n_rep == 1:
         return x
     B, H, L, D = x.shape
@@ -150,15 +130,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
 
 # ===================== Attention 레이어 =====================
 class TransformerAttention(nn.Module):
-    """Transformer Self-Attention
-
-    특징:
-    - FlexAttention 지원 (PyTorch 2.5+)
-    - Sliding Window Attention (마스크 기반)
-    - Grouped Query Attention (GQA)
-    - RoPE
-    - 메타 토큰 지원
-    """
+    """Transformer Self-Attention with SWA support"""
 
     def __init__(
         self,
@@ -184,7 +156,6 @@ class TransformerAttention(nn.Module):
         self.window = window
         self.num_meta = num_meta_tokens
 
-        # Q, K, V 프로젝션
         self.q = nn.Linear(d, n_heads * self.Dh, bias=False)
         self.k = nn.Linear(d, self.KV * self.Dh, bias=False)
         self.v = nn.Linear(d, self.KV * self.Dh, bias=False)
@@ -193,19 +164,11 @@ class TransformerAttention(nn.Module):
         self.rope = RotaryEmbedding(self.Dh, base=rope_base)
         self.drop = nn.Dropout(dropout)
 
-        # FlexAttention 설정
         self.use_flex = HAS_FLEX_ATTN and attn_type == AttentionType.LOCAL
         if self.use_flex:
             self._setup_flex()
 
     def _setup_flex(self):
-        """FlexAttention 마스크 설정
-
-        마스크 구성:
-        - Causal: 미래 토큰 차단
-        - Sliding Window: 최근 W개만 참조
-        - Meta Token: 항상 참조 가능
-        """
         def causal(b, h, q, k):
             return q >= k
 
@@ -215,46 +178,28 @@ class TransformerAttention(nn.Module):
         def meta(b, h, q, k):
             return k < self.num_meta
 
-        # (Causal AND Sliding) OR Meta
         content_mask = and_masks(causal, sliding)
         self.flex_mask = or_masks(meta, content_mask) if self.num_meta > 0 else content_mask
         self.flex_attn = torch.compile(flex_attention)
 
     def _make_causal_mask(self, T: int, Tk: int, device) -> torch.Tensor:
-        """인과적 마스크 생성 (미래 차단)"""
-        # T: query length, Tk: key length
-        # Query 위치 i는 Key 위치 0~i까지만 참조 가능
-        row_idx = torch.arange(T, device=device).unsqueeze(1)  # [T, 1]
-        col_idx = torch.arange(Tk, device=device).unsqueeze(0)  # [1, Tk]
-        # col_idx > row_idx + (Tk - T) 인 경우 마스킹 (미래 토큰)
-        offset = Tk - T  # KV cache가 있을 때의 offset
+        row_idx = torch.arange(T, device=device).unsqueeze(1)
+        col_idx = torch.arange(Tk, device=device).unsqueeze(0)
+        offset = Tk - T
         mask = torch.where(col_idx > row_idx + offset, float('-inf'), 0.0)
         return mask
 
     def _make_swa_mask(self, T: int, Tk: int, device) -> torch.Tensor:
-        """Sliding Window Attention 마스크 (논문 방식: 마스크 기반)
-
-        특징:
-        - Causal + Window 제한
-        - Meta token은 항상 참조 가능
-        - KV를 truncate하지 않고 마스크로 처리
-        """
+        """Sliding Window Attention 마스크"""
         mask = torch.full((T, Tk), float('-inf'), device=device)
-        offset = Tk - T  # KV cache offset
+        offset = Tk - T
 
         for i in range(T):
-            # Meta tokens: 항상 참조 가능
             if self.num_meta > 0:
                 mask[i, :self.num_meta] = 0.0
-
-            # Content tokens: Causal + Window
-            # 현재 쿼리 위치에 해당하는 절대 위치
             abs_q_pos = i + offset
-            # Window 시작 위치 (meta token 이후부터)
             window_start = max(self.num_meta, abs_q_pos - self.window + 1)
-            # Window 끝 위치 (causal: 현재까지만)
             window_end = abs_q_pos + 1
-
             mask[i, window_start:window_end] = 0.0
 
         return mask
@@ -265,26 +210,12 @@ class TransformerAttention(nn.Module):
         kv_cache: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         return_attn: bool = False,
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]], Optional[torch.Tensor]]:
-        """전방 전파
-
-        Args:
-            x: 입력 [B, T, D]
-            kv_cache: KV 캐시 (추론용)
-            return_attn: 어텐션 가중치 반환 여부
-
-        Returns:
-            output: 출력 [B, T, D]
-            new_cache: 새 KV 캐시
-            attn_weights: 어텐션 가중치 (return_attn=True일 때만)
-        """
         B, T, _ = x.shape
 
-        # Q, K, V 계산
         q = self.q(x).view(B, T, self.H, self.Dh).transpose(1, 2)
         k_new = self.k(x).view(B, T, self.KV, self.Dh).transpose(1, 2)
         v_new = self.v(x).view(B, T, self.KV, self.Dh).transpose(1, 2)
 
-        # KV 캐시 병합
         if kv_cache is not None:
             k_prev, v_prev = kv_cache
             k = torch.cat([k_prev, k_new], dim=2)
@@ -294,7 +225,6 @@ class TransformerAttention(nn.Module):
 
         Tc = k.size(2)
 
-        # RoPE 적용
         pos_q = torch.arange(Tc - T, Tc, device=x.device)
         pos_k = torch.arange(Tc, device=x.device)
         q = self.rope.apply_rotary(q, pos_q)
@@ -302,81 +232,59 @@ class TransformerAttention(nn.Module):
 
         new_cache = (k.detach(), v.detach())
 
-        # GQA: KV 헤드 반복
         k_full = repeat_kv(k, self.rep)
         v_full = repeat_kv(v, self.rep)
-
         Tk = k_full.size(2)
 
-        # Attention 계산
         attn_weights = None
 
         if self.use_flex and not return_attn:
-            # FlexAttention
             block_mask = create_block_mask(self.flex_mask, B=None, H=None, Q_LEN=T, KV_LEN=Tk)
             out = self.flex_attn(q, k_full, v_full, block_mask=block_mask)
             out = out.transpose(1, 2).reshape(B, T, self.H * self.Dh)
 
         elif HAS_FLASH_ATTN and not return_attn and self.num_meta == 0 and self.attn_type == AttentionType.GLOBAL:
-            # Flash Attention (Global only, no meta tokens)
             q_f = q.transpose(1, 2)
             k_f = k_full.transpose(1, 2)
             v_f = v_full.transpose(1, 2)
 
             input_dtype = q_f.dtype
             if input_dtype not in [torch.float16, torch.bfloat16]:
-                if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-                    flash_dtype = torch.bfloat16
-                else:
-                    flash_dtype = torch.float16
-                q_f = q_f.to(flash_dtype)
-                k_f = k_f.to(flash_dtype)
-                v_f = v_f.to(flash_dtype)
+                flash_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+                q_f, k_f, v_f = q_f.to(flash_dtype), k_f.to(flash_dtype), v_f.to(flash_dtype)
             else:
                 flash_dtype = input_dtype
 
             out = flash_attn_func(q_f, k_f, v_f, causal=True)
-
             if flash_dtype != input_dtype:
                 out = out.to(input_dtype)
-
             out = out.reshape(B, T, self.H * self.Dh)
 
         else:
-            # Manual SDPA (시각화용 또는 폴백)
             scale = 1.0 / math.sqrt(self.Dh)
             scores = torch.matmul(q, k_full.transpose(-2, -1)) * scale
 
-            # 마스크 적용 (SWA 또는 Causal)
             if self.attn_type == AttentionType.LOCAL:
                 mask = self._make_swa_mask(T, Tk, x.device)
             else:
                 mask = self._make_causal_mask(T, Tk, x.device)
 
             scores = scores + mask.unsqueeze(0).unsqueeze(0)
-
             attn = F.softmax(scores, dim=-1)
             attn = self.drop(attn) if self.training else attn
 
             if return_attn:
-                attn_weights = attn  # [B, H, T, Tk]
+                attn_weights = attn
 
             out = torch.matmul(attn, v_full)
             out = out.transpose(1, 2).reshape(B, T, self.H * self.Dh)
 
         out = self.o(out)
-
-        if return_attn:
-            return out, new_cache, attn_weights
-        return out, new_cache, None
+        return out, new_cache, attn_weights
 
 # ===================== Mamba 레이어 =====================
 class MambaLayer(nn.Module):
-    """Mamba State Space Model
-
-    상태 공간 모델 기반 시퀀스 모델링
-    장점: 상수 크기 상태, 선형 시간 복잡도
-    """
+    """Mamba State Space Model"""
     def __init__(self, d: int, d_state: int = 16, d_conv: int = 4, expand: int = 2):
         super().__init__()
         if not HAS_MAMBA:
@@ -386,27 +294,25 @@ class MambaLayer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.mamba(x)
 
-# ===================== 하이브리드 블록 (논문 정확 재현) =====================
+# ===================== 하이브리드 블록 =====================
 class HymbaBlock(nn.Module):
-    """Hymba 하이브리드 블록 (논문 정확 재현)
+    """Hymba 하이브리드 블록
 
-    공식 융합 공식:
-    Y = W_out(β_attn · norm(Attn(X)) + β_mamba · norm(Mamba(X)))
+    유연한 Mamba:Transformer 비율 지원
+    - n_mamba_heads=0: Transformer-only
+    - n_attn_heads=0: Mamba-only
+    - 둘 다 >0: Hybrid (비율 조정 가능)
 
-    핵심: 동일한 입력 X가 Attention과 Mamba 모두에 전달됨 (분할 X)
-
-    3가지 모드:
-    1. Transformer-only (arch_type=TRANSFORMER_ONLY)
-    2. Mamba-only (arch_type=MAMBA_ONLY)
-    3. Hybrid (arch_type=HYBRID, 공식 Hymba)
+    Fusion 공식 (Hybrid):
+    Y = β_attn · norm(Attn(X)) + β_mamba · norm(Mamba(X))
     """
 
     def __init__(
         self,
         d_model: int,
-        arch_type: ArchType,
-        n_heads: int = 8,
-        n_kv: int = 2,
+        n_attn_heads: int = 8,
+        n_mamba_heads: int = 1,
+        n_kv_heads: int = 2,
         attn_type: AttentionType = AttentionType.GLOBAL,
         window: int = 1024,
         dropout: float = 0.0,
@@ -417,31 +323,41 @@ class HymbaBlock(nn.Module):
         layer_idx: int = 0,
     ):
         super().__init__()
-        self.arch_type = arch_type
-        self.attn_type = attn_type
         self.layer_idx = layer_idx
         self.d_model = d_model
+        self.n_attn_heads = n_attn_heads
+        self.n_mamba_heads = n_mamba_heads
+
+        # 아키텍처 타입 결정
+        self.has_attn = n_attn_heads > 0
+        self.has_mamba = n_mamba_heads > 0
+        self.is_hybrid = self.has_attn and self.has_mamba
+
+        self.attn_type = attn_type
 
         self.norm1 = RMSNorm(d_model)
 
-        # Attention 경로 (동일 차원)
-        self.has_attn = arch_type in [ArchType.TRANSFORMER_ONLY, ArchType.HYBRID]
+        # Attention 경로
         if self.has_attn:
             self.attn = TransformerAttention(
-                d_model, n_heads, n_kv, attn_type, window, dropout, num_meta_tokens, layer_idx=layer_idx
+                d_model, n_attn_heads, n_kv_heads, attn_type, window,
+                dropout, num_meta_tokens, layer_idx=layer_idx
             )
 
-        # Mamba 경로 (동일 차원)
-        self.has_mamba = arch_type in [ArchType.MAMBA_ONLY, ArchType.HYBRID]
+        # Mamba 경로 (여러 개의 Mamba head 지원)
         if self.has_mamba:
-            self.mamba = MambaLayer(d_model, mamba_d_state, mamba_d_conv, mamba_expand)
+            self.mamba_heads = nn.ModuleList([
+                MambaLayer(d_model, mamba_d_state, mamba_d_conv, mamba_expand)
+                for _ in range(n_mamba_heads)
+            ])
+            if n_mamba_heads > 1:
+                # 여러 Mamba head 출력 결합
+                self.mamba_proj = nn.Linear(d_model * n_mamba_heads, d_model, bias=False)
 
-        # Hybrid fusion: Per-channel learnable scaling + Normalization (논문 방식)
-        if arch_type == ArchType.HYBRID:
-            # β_attn, β_mamba: per-channel scaling vectors
+        # Hybrid fusion
+        if self.is_hybrid:
             self.beta_attn = nn.Parameter(torch.ones(d_model))
             self.beta_mamba = nn.Parameter(torch.ones(d_model))
-            # 각 브랜치 출력에 대한 정규화
             self.attn_out_norm = RMSNorm(d_model)
             self.mamba_out_norm = RMSNorm(d_model)
 
@@ -456,59 +372,50 @@ class HymbaBlock(nn.Module):
         kv_cache: Optional[Tuple] = None,
         return_attn: bool = False,
     ):
-        """전방 전파
-
-        Args:
-            x: 입력 [B, T, D]
-            kv_cache: KV 캐시
-            return_attn: 어텐션 가중치 반환
-
-        Returns:
-            x: 출력 [B, T, D]
-            new_cache: 새 KV 캐시
-            attn_weights: 어텐션 가중치 (return_attn=True일 때)
-        """
         h = self.norm1(x)
         new_cache = None
         attn_weights = None
 
-        if self.arch_type == ArchType.TRANSFORMER_ONLY:
-            # Transformer만
+        if self.has_attn and not self.has_mamba:
+            # Transformer-only
             attn_out, new_cache, attn_w = self.attn(h, kv_cache, return_attn)
             y = attn_out
             if return_attn:
                 attn_weights = attn_w
 
-        elif self.arch_type == ArchType.MAMBA_ONLY:
-            # Mamba만
-            mamba_out = self.mamba(h)
-            y = mamba_out
+        elif self.has_mamba and not self.has_attn:
+            # Mamba-only
+            if self.n_mamba_heads == 1:
+                y = self.mamba_heads[0](h)
+            else:
+                mamba_outs = [m(h) for m in self.mamba_heads]
+                y = self.mamba_proj(torch.cat(mamba_outs, dim=-1))
 
-        else:  # HYBRID (논문 방식: 동일 입력, per-channel scaling)
-            # 동일한 입력 h가 두 브랜치에 전달
+        else:  # Hybrid
             attn_out, new_cache, attn_w = self.attn(h, kv_cache, return_attn)
-            mamba_out = self.mamba(h)
-
             if return_attn:
                 attn_weights = attn_w
 
-            # 논문 공식: Y = β_attn · norm(Attn) + β_mamba · norm(Mamba)
+            if self.n_mamba_heads == 1:
+                mamba_out = self.mamba_heads[0](h)
+            else:
+                mamba_outs = [m(h) for m in self.mamba_heads]
+                mamba_out = self.mamba_proj(torch.cat(mamba_outs, dim=-1))
+
+            # Fusion: β_attn · norm(Attn) + β_mamba · norm(Mamba)
             attn_normalized = self.attn_out_norm(attn_out)
             mamba_normalized = self.mamba_out_norm(mamba_out)
-
             y = self.beta_attn * attn_normalized + self.beta_mamba * mamba_normalized
 
         # Residual + FFN
         x = x + self.drop(y)
         x = x + self.drop(self.ffn(self.norm2(x)))
 
-        if return_attn:
-            return x, new_cache, attn_weights
-        return x, new_cache, None
+        return x, new_cache, attn_weights
 
     def get_fusion_weights(self):
-        """Hybrid fusion 가중치 반환 (시각화용)"""
-        if self.arch_type == ArchType.HYBRID:
+        """Hybrid fusion 가중치 반환"""
+        if self.is_hybrid:
             return {
                 "beta_attn": self.beta_attn.detach().cpu(),
                 "beta_mamba": self.beta_mamba.detach().cpu(),
@@ -520,27 +427,37 @@ class HymbaBlock(nn.Module):
 class HymbaConfig:
     """Hymba 모델 설정
 
-    공식 Hymba-1.5B 기본값:
-    - 32 레이어
-    - Global Attention: 0, 15, 31 (첫/중간/마지막)
-    - Local Attention: 나머지 (SWA, window=1024)
-    - Meta Tokens: 128개
+    유연한 Mamba:Transformer 비율 지원
+
+    예시:
+    - attn_ratio=1.0: Transformer-only
+    - attn_ratio=0.0: Mamba-only
+    - attn_ratio=0.5: 1:1 Hybrid
+    - mamba_heads_per_layer=5, attn_ratio=0.5: 5:1 Mamba:Attn
+
+    또는 layer_configs로 레이어별 직접 지정 가능
     """
     # 기본
     vocab_size: int = 8000
     d_model: int = 512
     n_layers: int = 12
 
-    # 아키텍처
+    # 아키텍처 타입
     arch_type: ArchType = ArchType.HYBRID
 
-    # Attention
+    # Attention 설정
     n_heads: int = 8
     n_kv_heads: int = 2
 
+    # Hybrid 비율 (0.0 = Mamba-only, 1.0 = Transformer-only)
+    attn_ratio: float = 0.5
+
+    # Mamba heads per layer (Hybrid에서 Mamba 비중 조절)
+    mamba_heads_per_layer: int = 1
+
     # Global/Local 패턴
-    global_attn_indices: Optional[List[int]] = None  # None이면 자동 계산 (첫/중간/마지막)
-    swa_window: int = 1024  # 공식 구현과 동일
+    global_attn_indices: Optional[List[int]] = None
+    swa_window: int = 1024
 
     # Meta Tokens
     use_meta_tokens: bool = True
@@ -549,7 +466,7 @@ class HymbaConfig:
     # KV 공유
     use_kv_sharing: bool = True
 
-    # Mamba
+    # Mamba 설정
     mamba_d_state: int = 16
     mamba_d_conv: int = 4
     mamba_expand: int = 2
@@ -558,43 +475,51 @@ class HymbaConfig:
     dropout: float = 0.0
     seq_len: int = 512
 
+    # 고급: 레이어별 직접 설정 (None이면 위 설정 사용)
+    # 형식: [(n_attn_heads, n_mamba_heads), ...]
+    layer_configs: Optional[List[Tuple[int, int]]] = None
+
     def get_attention_types(self) -> List[AttentionType]:
-        """레이어별 어텐션 타입 계산
-
-        Returns:
-            각 레이어의 AttentionType 리스트
-        """
+        """레이어별 어텐션 타입 계산"""
         if self.arch_type == ArchType.MAMBA_ONLY:
-            return []  # Mamba는 어텐션 없음
+            return [AttentionType.GLOBAL] * self.n_layers  # placeholder
 
-        # Global attention 인덱스 결정
         if self.global_attn_indices is None:
-            # 공식 패턴: 첫 번째, 중간, 마지막
             global_indices = {0, self.n_layers // 2, self.n_layers - 1}
         else:
             global_indices = set(self.global_attn_indices)
 
-        # 레이어별 타입 할당
         return [
             AttentionType.GLOBAL if i in global_indices else AttentionType.LOCAL
             for i in range(self.n_layers)
         ]
 
+    def get_layer_configs(self) -> List[Tuple[int, int]]:
+        """레이어별 (n_attn_heads, n_mamba_heads) 반환"""
+        if self.layer_configs is not None:
+            return self.layer_configs
+
+        # arch_type에 따라 자동 계산
+        if self.arch_type == ArchType.MAMBA_ONLY:
+            return [(0, self.mamba_heads_per_layer)] * self.n_layers
+        elif self.arch_type == ArchType.TRANSFORMER_ONLY:
+            return [(self.n_heads, 0)] * self.n_layers
+        else:  # HYBRID
+            return [(self.n_heads, self.mamba_heads_per_layer)] * self.n_layers
+
 # ===================== Hymba 모델 =====================
 class Hymba(nn.Module):
     """Hymba: Hybrid-head Architecture
 
-    지원 구성:
-    1. Mamba-only: SSM 기반
-    2. Transformer-only: Attention 기반
-    3. Hybrid: Attention + Mamba (공식 Hymba)
+    유연한 구성 지원:
+    1. Mamba-only: 순수 SSM
+    2. Transformer-only: 순수 Attention
+    3. Hybrid: Mamba + Attention (비율 조정 가능)
 
-    공식 Hymba-1.5B 구성:
-    - 32 레이어
-    - Global: [0, 15, 31]
-    - Local: 나머지
-    - Window: 1024
-    - Meta Tokens: 128
+    예시:
+    - 1:1 Hybrid: HymbaConfig(arch_type=HYBRID, mamba_heads_per_layer=1)
+    - 5:1 Mamba:Attn: HymbaConfig(arch_type=HYBRID, mamba_heads_per_layer=5)
+    - 레이어별 커스텀: HymbaConfig(layer_configs=[(8,1), (8,2), ...])
     """
 
     def __init__(self, cfg: HymbaConfig):
@@ -609,13 +534,13 @@ class Hymba(nn.Module):
         # 토큰 임베딩
         self.tok_emb = nn.Embedding(cfg.vocab_size, cfg.d_model)
 
-        # 레이어별 어텐션 타입
+        # 레이어별 설정
         attn_types = cfg.get_attention_types()
+        layer_configs = cfg.get_layer_configs()
 
         # KV 공유 설정
         self.owner = list(range(cfg.n_layers))
-        if cfg.use_kv_sharing and cfg.arch_type != ArchType.MAMBA_ONLY and len(attn_types) > 0:
-            # Local 레이어끼리 연속으로 페어링 (Global은 독립)
+        if cfg.use_kv_sharing and cfg.arch_type != ArchType.MAMBA_ONLY:
             i = 0
             while i < cfg.n_layers:
                 if attn_types[i] == AttentionType.LOCAL:
@@ -623,30 +548,39 @@ class Hymba(nn.Module):
                     while j < cfg.n_layers and attn_types[j] == AttentionType.LOCAL:
                         self.owner[j] = i
                         j += 1
-                        if j - i >= 2:  # 최대 2개씩 페어
+                        if j - i >= 2:
                             break
                     i = j
                 else:
                     i += 1
 
         # 블록 생성
-        self.blocks = nn.ModuleList([
-            HymbaBlock(
+        self.blocks = nn.ModuleList()
+        for i in range(cfg.n_layers):
+            n_attn, n_mamba = layer_configs[i]
+
+            # Mamba-only면 어텐션 설정 무시
+            if n_attn == 0:
+                attn_type = AttentionType.GLOBAL  # placeholder
+                num_meta = 0
+            else:
+                attn_type = attn_types[i]
+                num_meta = cfg.num_meta_tokens if cfg.use_meta_tokens else 0
+
+            self.blocks.append(HymbaBlock(
                 cfg.d_model,
-                cfg.arch_type,
-                cfg.n_heads,
-                cfg.n_kv_heads,
-                attn_types[i] if i < len(attn_types) else AttentionType.GLOBAL,
-                cfg.swa_window,
-                cfg.dropout,
-                cfg.num_meta_tokens if cfg.use_meta_tokens else 0,
-                cfg.mamba_d_state,
-                cfg.mamba_d_conv,
-                cfg.mamba_expand,
+                n_attn_heads=n_attn,
+                n_mamba_heads=n_mamba,
+                n_kv_heads=cfg.n_kv_heads if n_attn > 0 else 1,
+                attn_type=attn_type,
+                window=cfg.swa_window,
+                dropout=cfg.dropout,
+                num_meta_tokens=num_meta,
+                mamba_d_state=cfg.mamba_d_state,
+                mamba_d_conv=cfg.mamba_d_conv,
+                mamba_expand=cfg.mamba_expand,
                 layer_idx=i,
-            )
-            for i in range(cfg.n_layers)
-        ])
+            ))
 
         self.norm = RMSNorm(cfg.d_model)
         self.head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
@@ -655,23 +589,12 @@ class Hymba(nn.Module):
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
-        """가중치 초기화"""
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, x, targets=None, return_attn=False):
-        """전방 전파
-
-        Args:
-            x: 입력 토큰 [B, T]
-            targets: 타겟 토큰 (학습용)
-            return_attn: 어텐션 가중치 반환
-
-        Returns:
-            dict: {"logits": logits, "loss": loss, "attn_weights": attn_list}
-        """
         B, T = x.shape
         h = self.tok_emb(x)
 
@@ -684,7 +607,7 @@ class Hymba(nn.Module):
         attn_weights_list = []
         for block in self.blocks:
             h, _, attn_w = block(h, kv_cache=None, return_attn=return_attn)
-            if return_attn and attn_w is not None:
+            if return_attn:
                 attn_weights_list.append(attn_w)
 
         # 메타 토큰 제거
@@ -706,17 +629,7 @@ class Hymba(nn.Module):
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
-        """자동회귀 생성 (KV 캐시 사용)
-
-        Args:
-            idx: 입력 토큰 [B, T]
-            max_new_tokens: 생성할 토큰 수
-            temperature: 샘플링 온도
-            top_k: Top-k 샘플링
-
-        Returns:
-            생성된 토큰 [B, T+max_new_tokens]
-        """
+        """자동회귀 생성 (KV 캐시 사용)"""
         self.eval()
         device = next(self.parameters()).device
         idx = idx.to(device)
@@ -724,7 +637,6 @@ class Hymba(nn.Module):
         B = idx.size(0)
         h = self.tok_emb(idx)
 
-        # 메타 토큰
         if self.meta_tokens is not None:
             meta = self.meta_tokens.expand(B, -1, -1)
             h = torch.cat([meta, h], dim=1)
@@ -768,13 +680,11 @@ class Hymba(nn.Module):
         return idx
 
     def count_parameters(self):
-        """파라미터 수 계산"""
         total = sum(p.numel() for p in self.parameters())
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
         return {"total": total, "trainable": trainable}
 
     def get_kv_sharing_info(self):
-        """KV 공유 정보"""
         groups = {}
         for i, owner in enumerate(self.owner):
             if owner not in groups:
@@ -793,28 +703,47 @@ class Hymba(nn.Module):
         }
 
     def get_attention_pattern_info(self):
-        """어텐션 패턴 정보"""
         attn_types = self.cfg.get_attention_types()
+        layer_configs = self.cfg.get_layer_configs()
 
-        global_layers = [i for i, t in enumerate(attn_types) if t == AttentionType.GLOBAL]
-        local_layers = [i for i, t in enumerate(attn_types) if t == AttentionType.LOCAL]
+        # 실제로 어텐션이 있는 레이어만
+        attn_layers = [i for i, (n_attn, _) in enumerate(layer_configs) if n_attn > 0]
+
+        global_layers = [i for i in attn_layers if attn_types[i] == AttentionType.GLOBAL]
+        local_layers = [i for i in attn_layers if attn_types[i] == AttentionType.LOCAL]
 
         return {
             "total_layers": self.cfg.n_layers,
+            "attn_layers": attn_layers,
             "global_layers": global_layers,
             "local_layers": local_layers,
             "num_global": len(global_layers),
             "num_local": len(local_layers),
         }
 
-    def get_fusion_weights(self):
-        """모든 레이어의 fusion 가중치 반환 (시각화용)"""
-        if self.cfg.arch_type != ArchType.HYBRID:
-            return None
+    def get_architecture_info(self):
+        """아키텍처 상세 정보"""
+        layer_configs = self.cfg.get_layer_configs()
 
+        info = {
+            "arch_type": self.cfg.arch_type.value,
+            "n_layers": self.cfg.n_layers,
+            "d_model": self.cfg.d_model,
+            "layer_configs": layer_configs,
+            "total_attn_heads": sum(c[0] for c in layer_configs),
+            "total_mamba_heads": sum(c[1] for c in layer_configs),
+        }
+
+        if info["total_attn_heads"] > 0 and info["total_mamba_heads"] > 0:
+            info["mamba_to_attn_ratio"] = info["total_mamba_heads"] / info["total_attn_heads"]
+
+        return info
+
+    def get_fusion_weights(self):
+        """모든 레이어의 fusion 가중치 반환"""
         weights = {}
         for i, block in enumerate(self.blocks):
             w = block.get_fusion_weights()
             if w is not None:
                 weights[i] = w
-        return weights
+        return weights if weights else None
