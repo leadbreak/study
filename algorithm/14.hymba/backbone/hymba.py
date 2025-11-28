@@ -164,7 +164,9 @@ class TransformerAttention(nn.Module):
         self.rope = RotaryEmbedding(self.Dh, base=rope_base)
         self.drop = nn.Dropout(dropout)
 
-        self.use_flex = HAS_FLEX_ATTN and attn_type == AttentionType.LOCAL
+        # FlexAttention: head_dim이 2의 거듭제곱일 때만 사용 가능 (Triton 제약)
+        head_dim_is_power_of_2 = (self.Dh & (self.Dh - 1)) == 0 and self.Dh > 0
+        self.use_flex = HAS_FLEX_ATTN and attn_type == AttentionType.LOCAL and head_dim_is_power_of_2
         if self.use_flex:
             self._setup_flex()
 
@@ -190,18 +192,26 @@ class TransformerAttention(nn.Module):
         return mask
 
     def _make_swa_mask(self, T: int, Tk: int, device) -> torch.Tensor:
-        """Sliding Window Attention 마스크"""
+        """Sliding Window Attention 마스크 (벡터화된 구현)"""
         mask = torch.full((T, Tk), float('-inf'), device=device)
         offset = Tk - T
 
-        for i in range(T):
-            if self.num_meta > 0:
-                mask[i, :self.num_meta] = 0.0
-            abs_q_pos = i + offset
-            window_start = max(self.num_meta, abs_q_pos - self.window + 1)
-            window_end = abs_q_pos + 1
-            mask[i, window_start:window_end] = 0.0
+        # Meta tokens는 항상 attend 가능
+        if self.num_meta > 0:
+            mask[:, :self.num_meta] = 0.0
 
+        # 벡터화된 window mask 계산
+        q_idx = torch.arange(T, device=device).unsqueeze(1)  # [T, 1]
+        k_idx = torch.arange(Tk, device=device).unsqueeze(0)  # [1, Tk]
+
+        abs_q_pos = q_idx + offset  # [T, 1]
+
+        # Causal + Window 조건: window_start <= k <= abs_q_pos
+        # window_start = max(num_meta, abs_q_pos - window + 1)
+        window_start = torch.clamp(abs_q_pos - self.window + 1, min=self.num_meta)
+        in_window = (k_idx >= window_start) & (k_idx <= abs_q_pos)
+
+        mask[in_window] = 0.0
         return mask
 
     def forward(
@@ -304,7 +314,8 @@ class HymbaBlock(nn.Module):
     - 둘 다 >0: Hybrid (비율 조정 가능)
 
     Fusion 공식 (Hybrid):
-    Y = β_attn · norm(Attn(X)) + β_mamba · norm(Mamba(X))
+    Y = β_attn · Attn(X) + β_mamba · Mamba(X)
+    (입력 X는 이미 norm1으로 정규화됨, beta 초기값 0.5로 합=1)
     """
 
     def __init__(
@@ -354,10 +365,14 @@ class HymbaBlock(nn.Module):
                 # 여러 Mamba head 출력 결합
                 self.mamba_proj = nn.Linear(d_model * n_mamba_heads, d_model, bias=False)
 
-        # Hybrid fusion
+        # Hybrid fusion - 논문 방식 (Equation 3):
+        # Y = W_out_proj(β₁·norm(M_attn·X̃) + β₂·norm(M_ssm·X̃))
+        # 각 경로 출력에 RMSNorm 적용 후 learnable per-channel scaling
         if self.is_hybrid:
-            self.beta_attn = nn.Parameter(torch.ones(d_model))
-            self.beta_mamba = nn.Parameter(torch.ones(d_model))
+            # 초기값: 각각 0.5로 시작 (합=1, 안정적인 학습)
+            self.beta_attn = nn.Parameter(torch.full((d_model,), 0.5))
+            self.beta_mamba = nn.Parameter(torch.full((d_model,), 0.5))
+            # 논문 공식: 각 경로 출력을 정규화
             self.attn_out_norm = RMSNorm(d_model)
             self.mamba_out_norm = RMSNorm(d_model)
 
@@ -402,10 +417,9 @@ class HymbaBlock(nn.Module):
                 mamba_outs = [m(h) for m in self.mamba_heads]
                 mamba_out = self.mamba_proj(torch.cat(mamba_outs, dim=-1))
 
-            # Fusion: β_attn · norm(Attn) + β_mamba · norm(Mamba)
-            attn_normalized = self.attn_out_norm(attn_out)
-            mamba_normalized = self.mamba_out_norm(mamba_out)
-            y = self.beta_attn * attn_normalized + self.beta_mamba * mamba_normalized
+            # Fusion (논문 Equation 3): β₁·norm(Attn) + β₂·norm(Mamba)
+            # 각 경로 출력을 정규화한 후 learnable scaling 적용
+            y = self.beta_attn * self.attn_out_norm(attn_out) + self.beta_mamba * self.mamba_out_norm(mamba_out)
 
         # Residual + FFN
         x = x + self.drop(y)
