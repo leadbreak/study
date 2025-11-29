@@ -313,9 +313,10 @@ class HymbaBlock(nn.Module):
     - n_attn_heads=0: Mamba-only
     - 둘 다 >0: Hybrid (비율 조정 가능)
 
-    Fusion 공식 (Hybrid):
-    Y = β_attn · Attn(X) + β_mamba · Mamba(X)
-    (입력 X는 이미 norm1으로 정규화됨, beta 초기값 0.5로 합=1)
+    Fusion 공식 (논문 Equation 3):
+    Y = β_attn · norm(Attn(X)) + β_mamba · norm(Mamba(X))
+    각 경로 출력에 RMSNorm 적용 후 learnable per-channel scaling
+    (beta 초기값 0.5로 합=1, 안정적인 학습)
     """
 
     def __init__(
