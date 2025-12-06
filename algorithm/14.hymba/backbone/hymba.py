@@ -583,28 +583,49 @@ class HymbaConfig:
         """
         KV reuse groups 자동 생성
 
-        규칙:
-        - Global 레이어는 KV 공유하지 않음
-        - 연속된 2개의 Local 레이어가 쌍을 이룸
-        - 첫 번째가 producer, 두 번째가 consumer
+        공식 Hymba 구현 기반 규칙:
+        - Global 레이어는 KV 공유하지 않음 (독립 KV)
+        - 연속된 Local 레이어들을 2개씩 그룹으로 묶음
+        - 홀수개의 연속 Local 레이어가 있으면 마지막 그룹은 3개
+        - 그룹의 첫 번째가 Producer, 나머지가 Consumer
+
+        예시 (32레이어, global=[0,15,31]):
+        - Layer 1-14: [[1,2], [3,4], [5,6], [7,8], [9,10], [11,12], [13,14]]
+        - Layer 16-30: [[16,17,18], [19,20], ...] (15개를 7+8로 나눔)
         """
         global_set = set(self.global_attn_idx)
         groups = []
 
+        # 연속된 Local 레이어 구간 찾기
         i = 0
         while i < self.n_layers:
             if i in global_set:
                 i += 1
                 continue
 
-            # Local 레이어 발견
-            if i + 1 < self.n_layers and (i + 1) not in global_set:
-                # 연속 2개의 local 레이어 → 쌍 형성
-                groups.append([i, i + 1])
-                i += 2
-            else:
-                # 단독 local 레이어 (쌍 형성 불가)
+            # 연속된 Local 레이어 수집
+            local_segment = []
+            while i < self.n_layers and i not in global_set:
+                local_segment.append(i)
                 i += 1
+
+            # 이 구간을 2개씩 그룹으로 묶기
+            # 홀수개면 첫 번째 그룹을 3개로 (공식 구현 방식)
+            n_local = len(local_segment)
+            if n_local == 0:
+                continue
+            elif n_local == 1:
+                # 단독 레이어 - KV 공유 없음 (Producer로 취급, 그룹에 미포함)
+                pass
+            elif n_local % 2 == 1:
+                # 홀수: 첫 그룹을 3개로
+                groups.append([local_segment[0], local_segment[1], local_segment[2]])
+                for k in range(3, n_local, 2):
+                    groups.append([local_segment[k], local_segment[k+1]])
+            else:
+                # 짝수: 모두 2개씩
+                for k in range(0, n_local, 2):
+                    groups.append([local_segment[k], local_segment[k+1]])
 
         self.kv_reuse_groups = groups
 
@@ -616,15 +637,18 @@ class HymbaConfig:
         if self.arch_type == ArchType.MAMBA_ONLY:
             return
 
-        # Local 레이어 수가 적절한지 확인
+        # 모든 Local 레이어가 그룹에 포함되었는지 확인
         global_set = set(self.global_attn_idx)
-        local_layers = [i for i in range(self.n_layers) if i not in global_set]
+        local_layers = set(i for i in range(self.n_layers) if i not in global_set)
+        grouped_layers = set()
+        for group in (self.kv_reuse_groups or []):
+            grouped_layers.update(group)
 
-        if len(local_layers) % 2 != 0:
+        ungrouped = local_layers - grouped_layers
+        if ungrouped:
             warnings.warn(
-                f"Local attention 레이어 수({len(local_layers)})가 홀수입니다. "
-                f"KV sharing을 위해 짝수가 권장됩니다. "
-                f"global_attn_idx를 조정하세요."
+                f"일부 Local 레이어가 KV reuse 그룹에 포함되지 않음: {sorted(ungrouped)}. "
+                f"이 레이어들은 독립 KV를 사용합니다."
             )
 
     def get_attention_types(self) -> List[AttentionType]:
