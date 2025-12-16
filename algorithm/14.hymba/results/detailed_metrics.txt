@@ -1,89 +1,66 @@
-====================================================================================================
-Hymba Ablation Study - Detailed Metrics
-====================================================================================================
+Hymba Ablation Study - Detailed Results
+============================================================
 
+Model: Mamba-only
+----------------------------------------
+  Parameters: 40.83M
+  Best PPL: 86.34
+  Final PPL: 281.93
+  Inference TPS: 168.0
+  KV Reduction: 1.00x
+  Training Time: 1.1 min
 
-====================================================================================================
-Mamba-only
-====================================================================================================
-Parameters: 82,534,912
-KV Cache Reduction: 1.00x
+Model: Transformer-only
+----------------------------------------
+  Parameters: 41.43M
+  Best PPL: 88.35
+  Final PPL: 305.80
+  Inference TPS: 83.1
+  KV Reduction: 1.00x
+  Training Time: 1.6 min
 
-Training:
-  - Best Val Loss: 4.2294 (PPL: 68.68)
-  - Final Val Loss: 5.2923 (PPL: 198.79)
-  - Train Speed: 62,260 tok/s
-  - Training Time: 1.4 min
+Model: Hybrid-1:1
+----------------------------------------
+  Parameters: 35.91M
+  Best PPL: 88.71
+  Final PPL: 411.06
+  Inference TPS: 60.2
+  KV Reduction: 1.20x
+  Training Time: 2.0 min
 
-Inference:
-  - Speed: 86.1 tok/s
-  - Time per 100 tokens: 1.16s
+Model: Hybrid-2:1
+----------------------------------------
+  Parameters: 41.38M
+  Best PPL: 91.34
+  Final PPL: 464.83
+  Inference TPS: 67.7
+  KV Reduction: 1.00x
+  Training Time: 2.0 min
 
+Model: Hybrid-5:1
+----------------------------------------
+  Parameters: 57.04M
+  Best PPL: 97.23
+  Final PPL: 525.62
+  Inference TPS: 58.7
+  KV Reduction: 1.00x
+  Training Time: 2.8 min
 
-====================================================================================================
-Transformer-only (Global)
-====================================================================================================
-Parameters: 68,910,592
-KV Cache Reduction: 1.00x
+Model: Hybrid-NoMeta
+----------------------------------------
+  Parameters: 35.88M
+  Best PPL: 90.02
+  Final PPL: 417.97
+  Inference TPS: 49.6
+  KV Reduction: 1.20x
+  Training Time: 2.9 min
 
-Training:
-  - Best Val Loss: 4.3329 (PPL: 76.16)
-  - Final Val Loss: 4.8500 (PPL: 127.74)
-  - Train Speed: 53,617 tok/s
-  - Training Time: 1.6 min
-
-Inference:
-  - Speed: 56.0 tok/s
-  - Time per 100 tokens: 1.79s
-
-
-====================================================================================================
-Transformer-only (Local)
-====================================================================================================
-Parameters: 68,910,592
-KV Cache Reduction: 1.88x
-
-Training:
-  - Best Val Loss: 2.5432 (PPL: 12.72)
-  - Final Val Loss: 3.3789 (PPL: 29.34)
-  - Train Speed: 16,064 tok/s
-  - Training Time: 5.4 min
-
-Inference:
-  - Speed: 15.2 tok/s
-  - Time per 100 tokens: 6.59s
-
-
-====================================================================================================
-Hybrid (50/50)
-====================================================================================================
-Parameters: 66,662,415
-KV Cache Reduction: 1.67x
-
-Training:
-  - Best Val Loss: 1.6486 (PPL: 5.20)
-  - Final Val Loss: 1.6511 (PPL: 5.21)
-  - Train Speed: 14,812 tok/s
-  - Training Time: 5.9 min
-
-Inference:
-  - Speed: 14.5 tok/s
-  - Time per 100 tokens: 6.90s
-
-
-====================================================================================================
-Hybrid (Paper Setting)
-====================================================================================================
-Parameters: 66,662,415
-KV Cache Reduction: 1.67x
-
-Training:
-  - Best Val Loss: 1.8038 (PPL: 6.07)
-  - Final Val Loss: 1.8040 (PPL: 6.07)
-  - Train Speed: 14,779 tok/s
-  - Training Time: 5.9 min
-
-Inference:
-  - Speed: 14.6 tok/s
-  - Time per 100 tokens: 6.84s
+Model: Hybrid-NoKVShare
+----------------------------------------
+  Parameters: 35.91M
+  Best PPL: 88.16
+  Final PPL: 411.06
+  Inference TPS: 62.0
+  KV Reduction: 1.00x
+  Training Time: 2.0 min
 

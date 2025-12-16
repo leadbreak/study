@@ -1,63 +1,75 @@
-====================================================================================================
 Prompt: ROMEO:
-====================================================================================================
+============================================================
 
 [Mamba-only]
-rome o : see , who m uch of fair ly i saw her do e l adies b i will for the cit y ; but thy self ! come , by t hat you t hat ? o ' d down be low ly i love d down be low ly i have d one , -- i hear ing on : we do not the rest ! lady bona , if the y thou hast n ever y thou shal
+ROMEO : Ċ And , Ġand Ġmy Ġliege . Ċ Ċ Ċ Is Ġall Ġthings ! Ċ Second ĠServingman : Ċ Ċ Ċ Ċ I 'll Ġprove . ĠCan Ġyou , ĠI Ġboth Ġyoung ĠMarcius ĠCoriolanus Ċ Ċ Is Ġto Ġthis Ġland Ġnor Ġwar like Ġa Ġsc ape : Ċ Ċ AUTOLYCUS : Ċ MERCUTIO : Ċ For Ġqueen , Ċ Ċ And Ġmake Ġher Ġbest Ġfriends , Ċ Ċ T re ason ! Ċ B A P lease Ġit Ġout Ġof
 
-[Transformer-only (Global)]
-rome o : ' tis no , t hat is this , sir , t hat h it is a s o , it is no s o hat h it is not s o it is ver y . rome o , it is not e l s o . rome o : it is not hat h it is not s o . rome o . rome o , t hat h it is not , t hat h it is
+[Transformer-only]
+ROMEO : Ċ My Ġlove Ġis Ġthat ĠMarcius Ġis Ġgone . Ċ Give Ġup , Ġyet Ġare Ġmy Ġfriend Ġlady , Ġthe Ġdear Ġsir , Ġstill Ġdo Ġnot Ġmuch . Ċ B ra ling Ġlove Ġdoth Ġread Ġthe Ġthing ĠI Ġwill Ċ Some Ġmust Ġbe Ġmuch Ċ My Ġlove , ĠI Ġwill Ċ My Ġlove 's Ġin ĠMantua Ġis 't Ġwell , Ċ That Ġlove Ġan Ġgentleman , Ġbut Ġyet Ġshe Ġis Ġmust Ġbe Ġgone . Ċ By Ġan Ġenemy . Ċ
 
-[Transformer-only (Local)]
-rome o : ' er g i banish ous ous whet rome o : : la banish ed : a rome o : a scal a balt a y i a rome o : : i scal a rome o : a rome o : a rome u banish ed luc i ' er er er rome o : : where unto luc i ! come a rome o : hortensi l i ed rome o : : a ament i feel a
+[Hybrid-1:1]
+ROMEO : Ċ Was Ġit Ġis Ġwon Ġabout Ġhis Ġbones , Ġindeed ; Ġtherefore Ġgive Ġme llow Ġsouls , Ġho ped Ġheaven Ġand Ġkeep ing Ġon 't , Ċ Upon Ġhis Ġson , Ġho per 'd Ġby ĠLondon , Ċ Is Ġit Ġis Ġgone , Ġbut Ġtri ck ers , Ġsir , Ġthat Ġever Ġbrought Ġyou Ġmust Ġbe Ġpatient ly Ġhath Ġbeen Ġgrown , Ġand Ġseek ing Ġover th Q ue , Ċ Is 't , Ġbeing Ġsatisfied ! Ċ Is Ġit
 
-[Hybrid (50/50)]
-rome o : warwick ! capulet s y ; and by t man y , after and to a an o ' s y , well to ' d with an o ' s y to - n one , for a an ' d to the y ; and less able of in you of a g be ! e l on , when , though of it me not my or s or is to death . wh , by for
+[Hybrid-2:1]
+ROMEO : Ċ my Ġlord , Ġif Ġthey Ġare Ġyou Ġare Ġhere 's t han k er Ġthan Ġmy Ġheart Ċ you Ġmay Ġfall Ġupon Ġyourselves , Ġsir , Ġsir , Ġif Ġyou Ġare Ġgrown Ġkind ly , Ġif Ġyou Ġare Ġtoo Ġmuch Ġbetter Ġthan Ġmy Ġdaughter , Ġsir , Ġif Ġyou Ġare Ġno Ġfurther Ġthan Ġmy Ġsoul , Ġsir , Ġif Ġyou Ġsay , Ġsir , Ġsir , Ġsir , Ġif Ġyou Ġcall ed , Ġsir , Ġsir , Ġsir ,
 
-[Hybrid (Paper Setting)]
-rome o : if e nough and n ext s in a ' d t hat h undre d one , of my sister ly as mine enem y in a le less as mine enem y : my soul , i an on ' s uch will - a - a side , t a ' s ' s ' d one . i an old brother and n ing a miss : i r are up on ' d one .
+[Hybrid-5:1]
+ROMEO : Ċ would Ġyou Ġwish 'd Ġby Ġyour Ġhighness , Ċ to ve Ġus Ġall Ġill , Ġas leep , Ċ w om ery Ġof Ġmine Ġown Ġyoung ĠGeorge , Ċ thou aint y Ġso Ġmuch Ġless Ġthan Ġall Ġmy Ġheart , Ċ sh ould Ġcall 'd , Ċ this pt is ion Ġof Ġall Ġdead ; Ġbut Ġbid Ġthem Ġnow Ġwell ĠI Ġwish ing less Ġcoward ly , Ċ Have ĠI Ġam ĠI 'll Ġbe Ġgone ; Ċ Hath Ġhe
+
+[Hybrid-NoMeta]
+ROMEO : Ċ One Ġof Ġher Ġchief est Ġmar qu is hes , Ċ D che ce Ċ I 'll Ġkeep Ġmy Ġhead ; Ċ I 'll st able , Ċ Con f ume Ġof Ġsome Ġtraitor , Ċ I Ġthank eth Ġin 't . Ċ How ĠI Ġhave Ġlaid Ġon Ġmy Ġtent , Ċ Is Ġas ĠI Ġhave Ġseen , Ċ Is Ġit Ġis Ġstrange ly Ġin 't . Ċ I Ġwould Ġbe ke ks , Ċ Is Ġit . Ċ
+
+[Hybrid-NoKVShare]
+ROMEO : Ċ Most Ġcanst Ġthou Ġwilt Ġthou Ġart Ġthou Ġshalt Ġthou Ġliest ' Ġfaith ful Ġarm 'd Ġwith Ġsuch Ġa Ġsoldier , Ġmethinks Ġ' twas Ġa Ġsoldier , ĠO , Ġor Ġtwo Ġhere , Ġor Ġtwo Ġknow ing Ġa Ġsoldier , Ġor Ġtwo Ċ Be Ġdone , Ġthough Ġit Ġis Ġdone , Ġsir , Ġor Ġtwo Ġmean Ġto Ġprison , Ġor Ġtwo Ġcare ful Ġspirit , Ġor Ġtwo Ġhours ; Ġcome , ĠI 'll Ġanswer 'd Ġwith Ġall Ġthe Ġking ,
 
 
-
-====================================================================================================
 Prompt: First Citizen:
-====================================================================================================
+============================================================
 
 [Mamba-only]
-f irst citizen : a long fro m uch grow n one , a bra y will i am i would you all if thou shal t it , when the sea , i am i am i shall be fore what s o , what i have had me the y ? northumberland , look t hat we are all a fool s ' d down be yond cloud s e well , by : i know , here after man ; let
+First ĠCitizen : Ċ And Ġher Ġlip Ċ Ċ I Ġam orous Ġplace , Ċ And Ġhelp Ġyou Ġnot Ġthis Ġis ! Ċ Con f aced Ġby Ġmy Ġliege . Ċ Ċ For Ġnow , Ċ The Ġh ouses ! Ċ Second ĠServingman : Ċ Second ĠServant : Ċ A Ġbed , Ċ We ep tune , ĠI Ġgive Ġme , Ġas Ġyour Ġgrace Ġgood Ġmorrow , ĠI Ġto Ġyour Ġworship Ġfor Ġher Ġmouth s Ġof Ġthe Ġwars Ġere ĠI Ġhear Ġa Ġhusband
 
-[Transformer-only (Global)]
-f irst citizen : be fore we hear you come , you do you are here in this time s o hol y e nough the y onder all too m ost we canno t hat h undre d one : the y e t rew ' ll be ing ' d is a ver y ears , and do it is a ' t hat h o ' the y e t hat h o thou n one ; t hat h o
+[Transformer-only]
+First ĠCitizen : Ċ For Ġour ĠVolsces , Ċ M ark , Ġlook Ġyou , Ġthat Ġhast ond Ċ Is Ġno Ġremedy ; Ġa Ġfool able ĠMarcius Ġis Ġbeen Ġso Ġlate , Ċ I Ġknow Ġyou Ġknow Ġyou ; Ġwe Ġhave Ġyou Ġknow Ġhow Ġfar Ġoff Ċ To Ġbe Ġso Ġnear ly Ġst out Ġyour Ġlordship Ċ That Ġwe Ġmay Ġdo 't : Ċ F ore Ġlife Ġab Ġyou . Ċ With Ġthis Ġgentleman ; ĠI Ġpray Ġyou , Ġnor Ġtime . Ċ
 
-[Transformer-only (Local)]
-f irst citizen : your f irst f f f irst , s man : f f irst f was , or f irst gentleman did f irst . f f did , where did s f irst did s f f irst f irst f f but , may f f irst was , but , where f irst . second f irst shall p where f irst lies . mene n f f irst s f f f f f irst had
+[Hybrid-1:1]
+First ĠCitizen : Ċ Is Ġit Ġis Ġbanish 'd ĠHenry 's Ġown Ġservant s Ġare Ġsatisfied . Ċ to Ġgive Ġme llow Ġhim , Ċ Is Ġit Ġis Ġgone , Ġsir , ĠJ ustice , ĠMaster ĠF it hal , Ġand Ġpractise s , Ġnay , ĠCamillo 's t ory , Ġand Ġbrothers , Ġnor Ġchildren 's t ory , Ġand Ġleave Ġme nd s omet imes , Ċ com p ocks , Ġbeing Ġbroken Ġmaid en c ra cious Ġmy Ġson ,
 
-[Hybrid (50/50)]
-f irst citizen : but n one ; for s y , but n u ly at , let than my y , thou y ! queen . d one , to death is to be ! queen , sir , by for the y , to your . th ; and to the y , but n one should be low ; and even , by for of a g , but my y n u ly may you of may be !
+[Hybrid-2:1]
+First ĠCitizen : Ċ this on men , Ġif Ġyou Ġare Ġnay , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir , Ġif Ġyou Ġare Ġignorant , Ġsir , Ġsir , Ġsir , Ġthat Ġkill 'd Ġby Ġthis Ġfool ! Ċ your Ġhonour 'd Ġup , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir , Ġif ĠMargaret 's t han k n ew s , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir ,
 
-[Hybrid (Paper Setting)]
-f irst citizen : i an t hat h undre d a side shall be low ly for the duke as mine honest gentleman : a ' d t hat h an t a child to the prince ly for ' s t hat h undre d a g i an on a ' s h be low ly for the sea t hat h a wif e nough ; for ' s light ' d as mine on ' s for the morn
+[Hybrid-5:1]
+First ĠCitizen : Ċ would Ġtold Ġme Ġagain , Ċ thou m ull s Ġof Ġall Ġthe Ġvillain ! Ċ of , Ċ w ute Ġit Ġis Ġcontent ; Ġand Ġbear ing Ġfor Ġhis Ġface , Ċ thy Ġvillain ! Ċ would Ġyou Ġare Ġgone ; Ġbut Ġone Ġthing , Ġsir , Ġsir , Ġsir , Ċ com p ers , Ġsir , Ġsir , Ġnone . Ċ w om Ġfrom Ġmy Ġbrother , Ġas leep , Ċ Were Ġnot Ġso Ġmuch Ġless
+
+[Hybrid-NoMeta]
+First ĠCitizen : Ċ Bid Ġthem , Ċ Think Ġyou Ġhither Ġpray Ġyou Ġso Ġlong . Ċ I Ġthank Ġyou Ġhome Ġto Ġthee Ġtogether , Ċ And Ġlet 's t ror ; Ċ Go , Ċ Nor , Ċ Go , Ċ If Ġyou Ġthus Ġstraight ? Ċ I Ġthank Ġyou , Ċ If Ġyou Ġare Ġalready , Ċ And Ġleave ; Ċ His Ġpra ises , Ċ And Ġlook 'd , Ċ I Ġam ain Ġagain , Ċ For ceive , Ċ
+
+[Hybrid-NoKVShare]
+First ĠCitizen : Ċ you . Ċ Would Ġbecome Ġan Ġhour , ĠI 'll Ġprove Ġa Ġguest s Ġof ĠRome , Ċ be it ary . Ċ En p ardon on ,-- which 's t ory , Ġor Ġfour t ic al ity , Ġ' gainst ĠRome , Ġsir , Ġwhere Ġit Ġis Ġnone Ġof Ġthine Ġown Ġqueen , Ġor Ġtwo Ġyears , Ġsir , Ġor Ġc ook , Ġsir , Ġas leep , Ġsir , Ġor Ġtwo Ġmean Ġto ĠMantua , Ġsir
 
 
-
-====================================================================================================
-Prompt: KING:
-====================================================================================================
+Prompt: KING HENRY:
+============================================================
 
 [Mamba-only]
-king : let us not be born . rome o : but one , my soul , my sovereign , when the rest ! if thou hast n ever y -- gloucester : i have all a ' tis dead unto his son is come . marci us all a thousand crown , who m ost some t hat name it , sir , good c laudi o : though he will be hind ; we have made the y ; and
+KING ĠHENRY : Ċ Ċ For Ġthere ĠI Ġhear Ġa Ġmost Ġkind ly Ġstay , Ċ Second ĠMurderer : Ċ Ċ Ċ His Ġface , Ċ Ċ And Ġmake Ġher bs , ĠI Ġtake Ġmy Ġfair Ġqueen , Ġand Ġa Ġm ethought , Ċ And Ġmake Ġher Ġbeauty Ġmakes Ġher Ġmarriage , Ċ But , Ċ Ċ The Ġl ads Ġto Ġcome : Ċ And Ġlook ing Ġshe Ġcannot Ġchoose Ġone Ġanother ? Ċ Ċ Ċ First ĠCitizen : Ċ I 'll Ġprove
 
-[Transformer-only (Global)]
-king : o h ark , h aving an other man , my mother ! king ed ward iv : o god ! lady capulet : my soul ' s uch is your lif e ither , or by my father , by this is it is it is the s lain ! d oth she is he is the s uch an other s o , the s uch of s of t hat h aving b oth not she is
+[Transformer-only]
+KING ĠHENRY : Ċ My Ġsovereign ĠLord Ġof ĠE x Ġlords , Ġas Ġyou Ġwill Ġnot Ġset Ġit ? Ċ R i itted Ġere Ġany Ġthing , Ġgentle Ġfriends . Ċ I Ġgive Ġme Ċ The ĠKing ĠRichard Ġmy Ġliege , Ġsir , Ġin qu e ve Ċ His Ġhead : Ġand Ġund Ġo ' en Ġhim , Ġboy ; Ċ With Ġus Ġnot Ġborn Ġto Ġbed ers , Ġare Ġhollow , ĠI Ġpray Ġyou , Ġyou , Ġin qu ire Ġyou ,
 
-[Transformer-only (Local)]
-king : fair thousand castle s ' s ' s ' s ' s ' s earl ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s ' s summer ' s ' s y y y y y y y y y y y y y y y y y y y y
+[Hybrid-1:1]
+KING ĠHENRY : Ċ Is Ġit Ġis Ġbanish 'd Ġand Ġleave Ġme nd ers , Ġand Ġleave Ġme nd s , Ġnow , Ċ Did Ġnot Ġthis Ġland s Ġare Ġgoing Ġto Ġwin Ġour Ġcourse Ġof Ġthis Ġland Ġthemselves , Ġeven Ġso Ġoften Ġmade Ġpatience Ġmade Ġpity . Ċ Doth Ġoff ences , Ġwhy Ġlet Ġus , Ġeven Ġso Ġfar Ġoff ended ; Ġyea , Ġnor ĠSomerset , Ġand Ġpluck s , Ġeven Ġso Ġheavy Ġcurse Ġthis Ġmarriage , Ġand Ġenter 'd Ġby
 
-[Hybrid (50/50)]
-king : but n one , when , to what a g , to our to a g had , when . second r , when where - t e th n one , by he , t r , by to a m uch ly fortune ' s y , by in thy time ! perdit or ly as to thy hand ? d ' s and ; and to him up of my or s y , he whi ch
+[Hybrid-2:1]
+KING ĠHENRY : Ċ M usic ry Ġat Ġall Ġthings , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir , Ġsir , Ġor Ġfour t han k nown ; Ġlet Ġus Ġhither Ġsay , Ġsir , Ġsir , Ġsir , Ġsir , Ġif Ġshe Ġwas Ġa Ġbawd , Ġsir , Ġsir , Ġsir , Ġsir , Ċ you Ġmay Ġbe Ġgone , Ġsir , Ġsir , Ġor Ġfour t ren cher Ġand Ġun just ly , Ġlet Ġme Ġhence ,
 
-[Hybrid (Paper Setting)]
-king : my father love ly as mine arm s in a ' s t a thing . o ' s ' s h undre d thing good word s in a child to a by s uch be low ly as thine , the sea t a ' s o ' s ' s ' s uch s t a wif e nough and to a le one . duke . gloucester , by un e nough and s uch t
+[Hybrid-5:1]
+KING ĠHENRY : Ċ would Ġdefend Ġthee , Ċ w it Ġupon Ġyour Ġgrace Ġunto Ġthe Ġvillain , Ġcome Ġto Ġprison , Ċ Made Ġme Ġwell Ġmet al , Ġsure , Ċ Did ĠI Ġam ĠI 'll Ġbear ing Ġof Ġheaven , Ġas Ġmuch Ġless Ġthan Ġall Ġmen , Ċ thou , Ċ F al ar 'd Ġby Ġtheir Ġhearts , Ġsir , Ġsir , Ċ Shall Ġbe Ġgone ; Ġfor ĠBohemia , Ċ of , Ġas Ġmuch Ġfurther . Ċ would Ġper
 
+[Hybrid-NoMeta]
+KING ĠHENRY : Ċ T : Ċ My Ġlips , Ċ We Ġgive Ġup Ġfrom Ġmy Ġliege . Ċ Second ĠServingman : Ċ Did st in et ter , Ċ T et ter .' Ċ To Ġmake Ġup , Ċ S in ies Ġgive Ġit , Ċ D in . Ċ We ree -- Ċ We Ġhave Ġc iv or il ror . Ċ I Ġhave Ġexec uted . Ċ P ri de Ġh ouses ! Ċ And Ġtread ! Ċ Ċ I
+
+[Hybrid-NoKVShare]
+KING ĠHENRY : Ċ you . Ċ En v iol s ' ld - she 's t ory , Ġor Ġno Ġless Ġthan Ġmine Ġown Ġcar ries Ġin 't . Ċ with , Ġor Ġtwo Ġyears , Ġas leep Ġand Ġsu per y - like Ġit Ġis Ġcoming Ġwith Ġall Ġthings Ġs urp Ġme Ġtoo Ġmuch Ġworn , Ġor Ġtwo Ġcare ful Ġwretch , Ġor Ġtwo Ġhours ; Ġbut Ġone Ġword , Ġor Ġtwo Ġmen 's t ory , Ġif Ġthou Ġart Ġthou
 
 
