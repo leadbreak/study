@@ -127,6 +127,7 @@ class HymbaOfficialAttention(nn.Module):
     - kv_last_layer로 K, V 재사용 (reuse_kv=True일 때)
     - Q, K normalization (per-head RMSNorm)
     - RoPE 적용
+    - Global/Local attention 지원 (SWA for Local)
     """
 
     def __init__(
@@ -134,17 +135,26 @@ class HymbaOfficialAttention(nn.Module):
         config,
         layer_idx: int = 0,
         reuse_kv: bool = False,
+        attn_hidden_size: Optional[int] = None,
+        num_heads: Optional[int] = None,
+        is_global: bool = True,  # Global or Local attention
     ):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
         self.reuse_kv = reuse_kv
+        self.is_global = is_global
 
-        self.hidden_size = config.attn_hidden_size
-        self.num_heads = config.num_attention_heads
+        # Block에서 전달받은 값 또는 config 기본값 사용
+        self.hidden_size = attn_hidden_size if attn_hidden_size is not None else config.attn_hidden_size
+        self.num_heads = num_heads if num_heads is not None else config.num_attention_heads
         self.num_kv_heads = config.num_key_value_heads
-        self.head_dim = self.hidden_size // self.num_heads
+        self.head_dim = config.attn_hidden_size // config.num_attention_heads  # 원래 head_dim 유지
         self.num_kv_groups = self.num_heads // self.num_kv_heads
+
+        # SWA parameters for Local attention
+        self.window_size = config.attn_window_size
+        self.num_meta = config.num_memory_tokens
 
         # Q, K normalization (per-head)
         self.q_norm = HymbaRMSNorm(self.head_dim)
@@ -157,6 +167,29 @@ class HymbaOfficialAttention(nn.Module):
         )
 
         self.attention_dropout = config.attention_dropout
+
+    def _make_swa_mask(self, T: int, device: torch.device) -> torch.Tensor:
+        """SWA mask 생성: causal AND (in_window OR is_meta)"""
+        mask = torch.full((T, T), float('-inf'), device=device)
+
+        q_idx = torch.arange(T, device=device).unsqueeze(1)  # [T, 1]
+        k_idx = torch.arange(T, device=device).unsqueeze(0)  # [1, T]
+
+        # 1. Causal: k <= q
+        causal = (k_idx <= q_idx)
+
+        # 2. Window: k >= q - window + 1
+        window_start = torch.clamp(q_idx - self.window_size + 1, min=0)
+        in_window = (k_idx >= window_start)
+
+        # 3. Meta: k < num_meta
+        is_meta = (k_idx < self.num_meta) if self.num_meta > 0 else torch.zeros_like(k_idx, dtype=torch.bool)
+
+        # Final: causal AND (in_window OR is_meta)
+        attend = causal & (in_window | is_meta)
+        mask[attend] = 0.0
+
+        return mask
 
     def forward(
         self,
@@ -212,13 +245,18 @@ class HymbaOfficialAttention(nn.Module):
         scale = 1.0 / math.sqrt(self.head_dim)
         scores = torch.matmul(q, k_expanded.transpose(-2, -1)) * scale
 
-        # Causal mask
+        # Mask: Global uses causal, Local uses SWA
         if attention_mask is None:
-            causal_mask = torch.triu(
-                torch.full((T, T), float('-inf'), device=scores.device),
-                diagonal=1
-            )
-            scores = scores + causal_mask
+            if self.is_global:
+                # Simple causal mask for global attention
+                mask = torch.triu(
+                    torch.full((T, T), float('-inf'), device=scores.device),
+                    diagonal=1
+                )
+            else:
+                # SWA mask for local attention: causal AND (in_window OR is_meta)
+                mask = self._make_swa_mask(T, scores.device)
+            scores = scores + mask
 
         attn_weights = F.softmax(scores, dim=-1)
 
@@ -253,19 +291,23 @@ class HymbaOfficialBlock(nn.Module):
         config,
         layer_idx: int = 0,
         reuse_kv: bool = False,
+        is_global: bool = True,  # Global or Local attention
     ):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
         self.reuse_kv = reuse_kv
+        self.is_global = is_global
 
         self.hidden_size = config.hidden_size
         self.mamba_expand = config.mamba_expand
         self.intermediate_size = int(self.mamba_expand * self.hidden_size)
 
         # Attention dimensions
-        self.attn_hidden_size = config.attn_hidden_size
-        self.k_hidden_size = config.num_key_value_heads * (config.attn_hidden_size // config.num_attention_heads)
+        # 공식 구현: attention output도 intermediate_size와 동일해야 fusion 가능
+        self.attn_hidden_size = self.intermediate_size  # attention output size = mamba output size
+        self.head_dim = config.attn_hidden_size // config.num_attention_heads
+        self.k_hidden_size = config.num_key_value_heads * self.head_dim
         self.v_hidden_size = self.k_hidden_size
 
         # Mamba dimensions
@@ -292,8 +334,15 @@ class HymbaOfficialBlock(nn.Module):
         )
 
         # Attention (without o_proj)
+        # attention hidden size를 intermediate_size로 맞춤
+        self.num_attn_heads = self.attn_hidden_size // self.head_dim
         self.self_attn = HymbaOfficialAttention(
-            config, layer_idx=layer_idx, reuse_kv=reuse_kv
+            config,
+            layer_idx=layer_idx,
+            reuse_kv=reuse_kv,
+            attn_hidden_size=self.attn_hidden_size,
+            num_heads=self.num_attn_heads,
+            is_global=is_global,
         )
 
         # Mamba Conv1d
@@ -475,16 +524,17 @@ class HymbaOfficialBlock(nn.Module):
 class HymbaOfficialDecoderLayer(nn.Module):
     """공식 구현의 DecoderLayer (MoE 제외)"""
 
-    def __init__(self, config, layer_idx: int = 0, reuse_kv: bool = False):
+    def __init__(self, config, layer_idx: int = 0, reuse_kv: bool = False, is_global: bool = True):
         super().__init__()
         self.layer_idx = layer_idx
         self.reuse_kv = reuse_kv
+        self.is_global = is_global
 
         # Input layernorm
         self.input_layernorm = HymbaRMSNorm(config.hidden_size)
 
         # Hybrid block
-        self.mamba = HymbaOfficialBlock(config, layer_idx=layer_idx, reuse_kv=reuse_kv)
+        self.mamba = HymbaOfficialBlock(config, layer_idx=layer_idx, reuse_kv=reuse_kv, is_global=is_global)
 
         # FFN (simplified, no MoE)
         self.intermediate_size = config.intermediate_size
@@ -541,20 +591,20 @@ class HymbaOfficialConfig:
     # Attention
     num_attention_heads: int = 25
     num_key_value_heads: int = 5
-    attn_hidden_size: int = 1600  # 보통 hidden_size와 동일
+    attn_hidden_size: Optional[int] = None  # Default: hidden_size
     attention_dropout: float = 0.0
 
     # Mamba
     mamba_expand: int = 2
     mamba_d_state: int = 16
     mamba_d_conv: int = 4
-    mamba_dt_rank: int = 160  # 보통 hidden_size // 10
+    mamba_dt_rank: Optional[int] = None  # Default: hidden_size // 10
     mamba_proj_bias: bool = False
     mamba_conv_bias: bool = True
     mamba_inner_layernorms: bool = True
 
     # FFN
-    intermediate_size: int = 5504
+    intermediate_size: Optional[int] = None  # Default: mamba_expand * hidden_size
 
     # KV reuse
     global_attn_idx: Optional[List[int]] = None
@@ -563,11 +613,22 @@ class HymbaOfficialConfig:
     # Meta tokens
     num_memory_tokens: int = 128
 
+    # SWA (Sliding Window Attention)
+    attn_window_size: int = 1024  # Local attention window size
+
     # Misc
     max_seq_len: int = 8192
     rms_norm_eps: float = 1e-6
 
     def __post_init__(self):
+        # Auto-calculate dimension parameters
+        if self.attn_hidden_size is None:
+            self.attn_hidden_size = self.hidden_size
+        if self.intermediate_size is None:
+            self.intermediate_size = int(self.mamba_expand * self.hidden_size)
+        if self.mamba_dt_rank is None:
+            self.mamba_dt_rank = max(self.hidden_size // 10, 1)
+
         if self.global_attn_idx is None:
             self.global_attn_idx = [0, self.num_hidden_layers // 2, self.num_hidden_layers - 1]
 
@@ -622,11 +683,15 @@ class HymbaOfficialModel(nn.Module):
                     self.kv_reuse_map[consumer] = producer
 
         # Decoder layers
+        # Global attention layers vs Local (SWA) layers
+        global_set = set(config.global_attn_idx or [])
+
         self.layers = nn.ModuleList()
         for i in range(config.num_hidden_layers):
             reuse_kv = i in self.kv_reuse_map
+            is_global = i in global_set
             self.layers.append(
-                HymbaOfficialDecoderLayer(config, layer_idx=i, reuse_kv=reuse_kv)
+                HymbaOfficialDecoderLayer(config, layer_idx=i, reuse_kv=reuse_kv, is_global=is_global)
             )
 
         # Final norm

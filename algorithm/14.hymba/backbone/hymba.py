@@ -198,7 +198,14 @@ class HymbaAttention(nn.Module):
             self._setup_flex_mask()
 
     def _setup_flex_mask(self):
-        """FlexAttention 마스크 설정"""
+        """FlexAttention 마스크 설정
+
+        SWA mask 조건:
+        1. Causal: k <= q (미래 위치는 attend 불가)
+        2. Window OR Meta: window 범위 내이거나 meta token인 key에 attend 가능
+
+        최종: causal AND (in_window OR is_meta_key)
+        """
         window = self.window
         num_meta = self.num_meta
 
@@ -211,27 +218,41 @@ class HymbaAttention(nn.Module):
         def meta_mask(b, h, q, k):
             return k < num_meta
 
-        content_mask = and_masks(causal_mask, window_mask)
-        self.flex_mask_fn = or_masks(meta_mask, content_mask) if num_meta > 0 else content_mask
+        # causal AND (window OR meta)
+        window_or_meta = or_masks(window_mask, meta_mask) if num_meta > 0 else window_mask
+        self.flex_mask_fn = and_masks(causal_mask, window_or_meta)
         self.flex_attn = torch.compile(flex_attention)
 
     def _make_swa_mask(self, T: int, Tk: int, device: torch.device) -> torch.Tensor:
-        """Sliding Window Attention 마스크 생성 (벡터화)"""
+        """Sliding Window Attention 마스크 생성 (벡터화)
+
+        SWA mask는 다음 조건을 만족해야 함:
+        1. Causal: 미래 위치(k > q)에는 attend 불가
+        2. Window: 현재 위치에서 window 크기 내의 과거만 attend 가능
+        3. Meta tokens: content 토큰은 모든 meta 토큰에 attend 가능 (causal 범위 내)
+
+        최종 마스크: causal AND (in_window OR is_meta_key)
+        """
         mask = torch.full((T, Tk), float('-inf'), device=device)
-        offset = Tk - T
+        offset = Tk - T  # Incremental decoding offset
 
-        # Meta tokens: 항상 attend 가능
-        if self.num_meta > 0:
-            mask[:, :self.num_meta] = 0.0
-
-        # Window mask (vectorized)
-        q_idx = torch.arange(T, device=device).unsqueeze(1)
-        k_idx = torch.arange(Tk, device=device).unsqueeze(0)
+        q_idx = torch.arange(T, device=device).unsqueeze(1)  # [T, 1]
+        k_idx = torch.arange(Tk, device=device).unsqueeze(0)  # [1, Tk]
         abs_q_pos = q_idx + offset
 
-        window_start = torch.clamp(abs_q_pos - self.window + 1, min=self.num_meta)
-        in_window = (k_idx >= window_start) & (k_idx <= abs_q_pos)
-        mask[in_window] = 0.0
+        # 1. Causal constraint: k <= q (과거 및 현재만)
+        causal = (k_idx <= abs_q_pos)
+
+        # 2. Window constraint: k >= q - window + 1
+        window_start = torch.clamp(abs_q_pos - self.window + 1, min=0)
+        in_window = (k_idx >= window_start)
+
+        # 3. Meta token access: causal 범위 내의 모든 meta 토큰 접근 가능
+        is_meta_key = (k_idx < self.num_meta) if self.num_meta > 0 else torch.zeros_like(k_idx, dtype=torch.bool)
+
+        # Final: causal AND (in_window OR is_meta_key)
+        attend = causal & (in_window | is_meta_key)
+        mask[attend] = 0.0
 
         return mask
 
@@ -585,47 +606,30 @@ class HymbaConfig:
 
         공식 Hymba 구현 기반 규칙:
         - Global 레이어는 KV 공유하지 않음 (독립 KV)
-        - 연속된 Local 레이어들을 2개씩 그룹으로 묶음
-        - 홀수개의 연속 Local 레이어가 있으면 마지막 그룹은 3개
-        - 그룹의 첫 번째가 Producer, 나머지가 Consumer
+        - 연속된 2개의 Local 레이어가 쌍을 이룸
+        - 첫 번째가 Producer, 두 번째가 Consumer
+        - 홀수개의 연속 Local 레이어가 있으면 마지막 1개는 독립 (그룹 미포함)
 
-        예시 (32레이어, global=[0,15,31]):
-        - Layer 1-14: [[1,2], [3,4], [5,6], [7,8], [9,10], [11,12], [13,14]]
-        - Layer 16-30: [[16,17,18], [19,20], ...] (15개를 7+8로 나눔)
+        예시 (8레이어, global=[0,3,7]):
+        - Local layers: [1,2] -> [[1,2]]
+        - Local layers: [4,5,6] -> [[4,5]], layer 6은 독립
         """
         global_set = set(self.global_attn_idx)
         groups = []
 
-        # 연속된 Local 레이어 구간 찾기
         i = 0
         while i < self.n_layers:
             if i in global_set:
                 i += 1
                 continue
 
-            # 연속된 Local 레이어 수집
-            local_segment = []
-            while i < self.n_layers and i not in global_set:
-                local_segment.append(i)
-                i += 1
-
-            # 이 구간을 2개씩 그룹으로 묶기
-            # 홀수개면 첫 번째 그룹을 3개로 (공식 구현 방식)
-            n_local = len(local_segment)
-            if n_local == 0:
-                continue
-            elif n_local == 1:
-                # 단독 레이어 - KV 공유 없음 (Producer로 취급, 그룹에 미포함)
-                pass
-            elif n_local % 2 == 1:
-                # 홀수: 첫 그룹을 3개로
-                groups.append([local_segment[0], local_segment[1], local_segment[2]])
-                for k in range(3, n_local, 2):
-                    groups.append([local_segment[k], local_segment[k+1]])
+            # 연속 2개의 local 레이어 발견 시 그룹 형성
+            if i + 1 < self.n_layers and (i + 1) not in global_set:
+                groups.append([i, i + 1])
+                i += 2
             else:
-                # 짝수: 모두 2개씩
-                for k in range(0, n_local, 2):
-                    groups.append([local_segment[k], local_segment[k+1]])
+                # 단독 local 레이어 - 독립 KV
+                i += 1
 
         self.kv_reuse_groups = groups
 
@@ -931,8 +935,10 @@ class Hymba(nn.Module):
             "producer_layers": sorted(producer_layers),
             "consumer_layers": sorted(consumer_layers),
             "num_independent_kv": len(producer_layers),
+            "independent_caches": len(producer_layers),  # alias for compatibility
             "reduction": total_attn_layers / len(producer_layers) if producer_layers else 1.0,
             "kv_reuse_groups": config.kv_reuse_groups,
+            "groups": {g[0]: g for g in (config.kv_reuse_groups or [])},  # owner -> group mapping
         }
 
     def get_attention_pattern_info(self) -> Dict[str, Any]:
@@ -944,6 +950,7 @@ class Hymba(nn.Module):
         local_layers = [i for i, t in enumerate(attn_types) if t == AttentionType.LOCAL]
 
         return {
+            "total_layers": config.n_layers,
             "global_layers": global_layers,
             "local_layers": local_layers,
             "num_global": len(global_layers),
@@ -955,12 +962,23 @@ class Hymba(nn.Module):
         """아키텍처 정보 반환"""
         config = self.config
 
+        # 총 attention/mamba heads 계산
+        total_attn_heads = 0
+        total_mamba_heads = 0
+        for layer in self.layers:
+            if layer.has_attention:
+                total_attn_heads += config.n_heads
+            if layer.has_mamba:
+                total_mamba_heads += 1  # Mamba는 레이어당 1개
+
         return {
             "arch_type": config.arch_type.value,
             "d_model": config.d_model,
             "n_layers": config.n_layers,
             "n_heads": config.n_heads,
             "n_kv_heads": config.n_kv_heads,
+            "total_attn_heads": total_attn_heads,
+            "total_mamba_heads": total_mamba_heads,
             "num_meta_tokens": config.num_meta_tokens if config.use_meta_tokens else 0,
             "swa_window": config.swa_window,
             "mamba_d_state": config.mamba_d_state,
