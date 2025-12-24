@@ -277,6 +277,7 @@ class HymbaAttention(nn.Module):
             position_ids: [B, T]
             kv_cache: 이전 KV cache (incremental decoding)
             shared_kv: Producer 레이어에서 공유받은 KV (reuse_kv=True일 때)
+                       핵심: RoPE 적용 후의 K를 받음!
             return_attn: attention weights 반환 여부
         """
         B, T, _ = hidden_states.shape
@@ -286,40 +287,46 @@ class HymbaAttention(nn.Module):
         q = q.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         q = self.q_norm(q)
 
-        # K, V 처리
+        # Position IDs for Q
+        pos_q = position_ids if position_ids.dim() == 2 else position_ids.unsqueeze(0).expand(B, -1)
+
+        # K, V 처리 (핵심 수정: RoPE 적용 시점)
         if self.reuse_kv:
-            # Consumer 레이어: shared_kv 사용
+            # Consumer 레이어: RoPE가 이미 적용된 K를 받음
             if shared_kv is None:
                 raise ValueError(f"Layer {self.layer_idx}: reuse_kv=True but shared_kv is None")
-            k, v = shared_kv
+            k_rotated, v = shared_kv  # 이미 RoPE 적용됨!
+            k_for_sharing = None
+            v_for_sharing = None
+            new_kv_cache = None
+            Tk = k_rotated.size(2)
         else:
-            # Producer/Global 레이어: K, V 직접 계산
+            # Producer/Global 레이어: K, V 직접 계산 및 RoPE 적용
             k = self.k_proj(hidden_states)
             v = self.v_proj(hidden_states)
             k = k.view(B, T, self.n_kv_heads, self.head_dim).transpose(1, 2)
             v = v.view(B, T, self.n_kv_heads, self.head_dim).transpose(1, 2)
             k = self.k_norm(k)
 
-        # KV cache 처리
-        if kv_cache is not None:
-            k_prev, v_prev = kv_cache
-            k = torch.cat([k_prev, k], dim=2)
-            v = torch.cat([v_prev, v], dim=2)
+            # KV cache 처리
+            if kv_cache is not None:
+                k_prev, v_prev = kv_cache
+                k = torch.cat([k_prev, k], dim=2)
+                v = torch.cat([v_prev, v], dim=2)
 
-        new_kv_cache = (k.detach(), v.detach()) if not self.reuse_kv else None
+            new_kv_cache = (k.detach(), v.detach())
 
-        # RoPE 적용 전 KV 저장 (producer가 consumer에게 전달할 원본)
-        # KV sharing은 RoPE 적용 전의 K, V를 공유
-        k_for_sharing = k if not self.reuse_kv else None
-        v_for_sharing = v if not self.reuse_kv else None
+            # RoPE 적용 (Producer만)
+            Tk = k.size(2)
+            pos_k = torch.arange(Tk, device=hidden_states.device).unsqueeze(0).expand(B, -1)
+            k_rotated = self.rope(k, pos_k)
 
-        # RoPE 적용
-        Tk = k.size(2)
-        pos_q = position_ids if position_ids.dim() == 2 else position_ids.unsqueeze(0).expand(B, -1)
-        pos_k = torch.arange(Tk, device=hidden_states.device).unsqueeze(0).expand(B, -1)
+            # RoPE 적용 후 KV 저장 (핵심 수정!)
+            k_for_sharing = k_rotated  # RoPE 적용된 K 공유
+            v_for_sharing = v
 
+        # Q에 RoPE 적용
         q = self.rope(q, pos_q[:, -T:])
-        k_rotated = self.rope(k, pos_k)
 
         # GQA: KV 헤드 확장
         k_expanded = repeat_kv(k_rotated, self.n_rep)
