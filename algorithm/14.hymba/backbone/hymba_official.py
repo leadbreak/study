@@ -481,18 +481,22 @@ class HymbaOfficialBlock(nn.Module):
 
         # Selective scan
         if HAS_MAMBA:
+            # Ensure consistent dtype for selective_scan_fn (requires float32)
+            input_dtype = mamba_hidden.dtype
             scan_output, _ = selective_scan_fn(
-                mamba_hidden,
-                discrete_dt,
+                mamba_hidden.float(),
+                discrete_dt.float(),
                 A,
-                B_param.transpose(1, 2),
-                C_param.transpose(1, 2),
+                B_param.transpose(1, 2).float(),
+                C_param.transpose(1, 2).float(),
                 self.D.float(),
-                z=gate,
+                z=gate.float(),
                 delta_bias=dt_bias.float() if dt_bias is not None else None,
                 delta_softplus=True,
                 return_last_state=True,
             )
+            # Convert back to original dtype
+            scan_output = scan_output.to(input_dtype)
         else:
             # Fallback: simple linear (not correct, just for testing)
             scan_output = mamba_hidden * F.sigmoid(gate)
