@@ -1,0 +1,2 @@
+model,params_m,n_layers,d_model,effective_batch_size,learning_rate,amp_enabled,final_loss,final_ppl,kv_reduction_pct
+Hymba,29.95648,8,320,128,0.0003,True,0.043580130184069275,1.0445436904368715,37.5

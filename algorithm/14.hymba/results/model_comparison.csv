@@ -1,0 +1,5 @@
+Model,Params (M),Final Loss,Final PPL,Time (s),Steps/sec
+Mamba-only,28.05,0.0167,1.02,183.1,10.92
+Transformer-only,27.80,0.0244,1.02,229.1,8.73
+Hymba (직접 구현),29.96,0.0147,1.01,324.5,6.16
+Hymba (공식),27.46,0.0169,1.02,442.8,4.52
