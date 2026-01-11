@@ -1,6 +1,7 @@
 ### 📝Log
 | Date             | Content                              | Link |
 |------------------|----------------------------------------|------|
+| 2025.11.30-2026.01.21 | [Paper] Hymba                     | [blog](https://brunch.co.kr/@leadbreak/27) [code](/algorithm/14.hymba) |
 | 2025.06.29-08.20 | [Paper] TabPFN                         | [code](/algorithm/13.PFN) |
 | 2025.04.09-06.11 | [Paper] minRNN                         | [blog](https://brunch.co.kr/@leadbreak/26) [code](/algorithm/12.minRNN) |
 | 2025.04.07-      | Deep Learning Training Note            | [code](/python/dl_training_note.ipynb) |
