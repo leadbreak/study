@@ -74,11 +74,20 @@ def _get_cuda_module():
     try:
         from torch.utils.cpp_extension import load
 
-        # minGRU 폴더의 CUDA 소스 사용
-        mingru_path = '/workspace/qscar/minGRU/kernels/csrc'
-        cuda_source = os.path.join(mingru_path, 'mingru_scan.cu')
+        # CUDA 소스 경로 후보들
+        cuda_paths = [
+            '/workspace/qscar/minGRU/kernels/csrc/mingru_scan.cu',
+            os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', 'minGRU', 'kernels', 'csrc', 'mingru_scan.cu'),
+            os.path.join(os.path.dirname(__file__), 'csrc', 'mingru_scan.cu'),
+        ]
 
-        if not os.path.exists(cuda_source):
+        cuda_source = None
+        for path in cuda_paths:
+            if os.path.exists(path):
+                cuda_source = os.path.abspath(path)
+                break
+
+        if cuda_source is None:
             return None
 
         _cuda_module = load(
