@@ -41,7 +41,6 @@ import torch.nn.functional as F
 # =============================================================================
 
 TRITON_AVAILABLE = False
-CUDA_AVAILABLE = False
 
 try:
     import triton
@@ -52,6 +51,30 @@ except ImportError:
 
 # CUDA 커널 모듈 (JIT 컴파일)
 _cuda_module = None
+_cuda_compile_attempted = False
+
+
+def is_cuda_available() -> bool:
+    """
+    CUDA 커널 가용성을 확인합니다.
+
+    최초 호출 시 CUDA 모듈을 JIT 컴파일하고 결과를 캐싱합니다.
+
+    Returns:
+        bool: CUDA 커널 사용 가능 여부
+    """
+    return _get_cuda_module() is not None
+
+
+# Backward compatibility alias
+def _check_cuda_available() -> bool:
+    """Deprecated: use is_cuda_available() instead"""
+    return is_cuda_available()
+
+
+# CUDA_AVAILABLE는 동적으로 계산됨 (property처럼 동작)
+# 직접 사용하지 말고 is_cuda_available() 사용 권장
+CUDA_AVAILABLE = property(lambda self: is_cuda_available())
 
 
 def _get_cuda_module():
