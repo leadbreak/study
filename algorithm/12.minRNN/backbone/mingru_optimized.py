@@ -52,6 +52,7 @@ except ImportError:
 # CUDA 커널 모듈 (JIT 컴파일)
 _cuda_module = None
 _cuda_compile_attempted = False
+_cuda_available_cache = None
 
 
 def is_cuda_available() -> bool:
@@ -59,22 +60,36 @@ def is_cuda_available() -> bool:
     CUDA 커널 가용성을 확인합니다.
 
     최초 호출 시 CUDA 모듈을 JIT 컴파일하고 결과를 캐싱합니다.
+    이후 호출에서는 캐싱된 결과를 반환합니다.
 
     Returns:
         bool: CUDA 커널 사용 가능 여부
+
+    Example:
+        >>> from backbone import is_cuda_available
+        >>> if is_cuda_available():
+        ...     model = MinGRUCUDA(d_model=256)
     """
-    return _get_cuda_module() is not None
+    global _cuda_available_cache
+    if _cuda_available_cache is None:
+        _cuda_available_cache = _get_cuda_module() is not None
+    return _cuda_available_cache
 
 
-# Backward compatibility alias
-def _check_cuda_available() -> bool:
-    """Deprecated: use is_cuda_available() instead"""
-    return is_cuda_available()
+def is_triton_available() -> bool:
+    """
+    Triton 커널 가용성을 확인합니다.
+
+    Returns:
+        bool: Triton 커널 사용 가능 여부
+    """
+    return TRITON_AVAILABLE
 
 
-# CUDA_AVAILABLE는 동적으로 계산됨 (property처럼 동작)
-# 직접 사용하지 말고 is_cuda_available() 사용 권장
-CUDA_AVAILABLE = property(lambda self: is_cuda_available())
+# CUDA_AVAILABLE는 import 시점에는 False이며,
+# 실제 가용성은 is_cuda_available() 호출 필요
+# 모듈 로딩 시 자동으로 확인하려면 아래 코드 활성화
+CUDA_AVAILABLE = False  # 런타임에 is_cuda_available()로 확인
 
 
 def _get_cuda_module():
