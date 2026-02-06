@@ -1,0 +1,5 @@
+Model,Parameters,Final Train Loss,Final Val Loss,Avg Epoch Time,Warmup Time,Avg VRAM
+MinGRU-Triton+compile,"551,808",1.0222,1.5827,47.7s,9.4s,15MB
+MinGRU-CUDA+compile,"551,808",1.0228,1.5814,59.9s,9.5s,47MB
+Mamba+compile,"474,880",1.0157,1.6018,99.3s,4.9s,48MB
+Transformer+compile,"664,832",1.0571,1.5939,49.0s,5.3s,16MB

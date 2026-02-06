@@ -1,0 +1,5 @@
+Model,Parameters,Final Train Loss,Final Val Loss,Avg Epoch Time,Avg VRAM
+MinGRU-Triton,"551,808",1.0219,1.5854,96.4s,49MB
+MinGRU-CUDA,"551,808",1.0236,1.6038,94.7s,52MB
+Mamba,"474,880",1.0145,1.6084,99.0s,53MB
+Transformer,"664,832",1.0565,1.6131,92.6s,57MB
